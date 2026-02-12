@@ -1,6 +1,6 @@
 {
   "name": "Sick Day Helper",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "slug": "sick_day",
   "description": "Sick day automations",
   "arch": ["amd64", "aarch64", "armv7", "armhf"],
@@ -8,4 +8,13 @@
   "boot": "auto",
   "init": false,
   "map": ["config:rw"]
+  ,
+  "schema": {
+    "enable_heartbeat": "bool",
+    "LOG_LEVEL": "select(info|debug)"
+  },
+  "environment": {
+    "LOG_LEVEL": "${LOG_LEVEL}",
+    "ENABLE_HEARTBEAT": "${enable_heartbeat}"
+  }
 }
