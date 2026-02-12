@@ -12,5 +12,6 @@ while true; do
     # Placeholder: Add sick-day logic here
     # Example: Check HA states, send notifications, etc.
     bashio::log.debug "Sick Day Helper running..."
+    bashio::log.info "Heartbeat at $(date)"
     sleep 60
 done
