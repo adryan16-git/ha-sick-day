@@ -7,9 +7,9 @@
   "startup": "application",
   "boot": "auto",
   "schema": {
-    "log_level": "select(info|debug|warning|error)"
+    "LOG_LEVEL": "select(info|debug|warning|error)"
   },
   "environment": {
-    "LOG_LEVEL": "${log_level}"
+    "LOG_LEVEL": "${LOG_LEVEL}"
   }
 }
