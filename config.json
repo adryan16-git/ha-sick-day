@@ -11,7 +11,7 @@
   "map": ["config:rw"],
   "schema": {
     "enable_heartbeat": "bool",
-    "LOG_LEVEL": "list(info|debug)"
+    "LOG_LEVEL": "list(info|debug)?"
   },
   "environment": {
     "LOG_LEVEL": "${LOG_LEVEL}",
