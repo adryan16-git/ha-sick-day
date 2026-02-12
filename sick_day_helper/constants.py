@@ -38,4 +38,4 @@ NOTIFICATION_ONBOARDING = "sick_day_onboarding"
 NOTIFICATION_CONFIRMATION = "sick_day_confirmation"
 
 # Logging
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").upper()
+LOG_LEVEL = os.environ.get("SDH_LOG_LEVEL", "info").upper()
