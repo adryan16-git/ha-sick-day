@@ -1,10 +1,10 @@
 {
   "name": "Sick Day Helper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "slug": "sick_day",
   "description": "Sick day automations",
   "arch": ["amd64", "aarch64", "armv7", "armhf"],
-  "startup": "application",
+  "startup": "services",
   "boot": "auto",
   "map": ["config:rw"]
 }
