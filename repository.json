@@ -1,0 +1,9 @@
+{
+  "name": "ha-sick-day",
+  "url": "https://github.com/adryan16-git/ha-sick-day",
+  "maintainer": "Adrian",
+  "email": "adrian.m.richardson@gmail.com",
+  "addons": [
+    "ha-sick-day"
+  ]
+}
