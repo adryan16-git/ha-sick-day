@@ -1,0 +1,51 @@
+## Sick Day Helper — Lovelace Card
+## Copy this YAML into your dashboard via:
+##   Dashboard → Edit → Add Card → Manual (YAML)
+
+type: vertical-stack
+cards:
+  - type: markdown
+    content: "## 🤒 Sick Day Helper"
+
+  - type: entities
+    entities:
+      - entity: input_boolean.sick_day_active
+        name: Sick Day Active
+        secondary_info: last-changed
+
+  - type: entities
+    title: Declare Sick Day
+    show_header_toggle: false
+    entities:
+      - entity: input_select.sick_day_person
+        name: Person
+      - entity: input_select.sick_day_duration_type
+        name: Duration Type
+      - entity: input_number.sick_day_num_days
+        name: Number of Days
+      - entity: input_datetime.sick_day_end_date
+        name: End Date
+
+  - type: horizontal-stack
+    cards:
+      - type: button
+        entity: input_boolean.sick_day_submit
+        name: Submit
+        icon: mdi:check-circle
+        tap_action:
+          action: toggle
+        show_state: false
+      - type: button
+        entity: input_boolean.sick_day_extend
+        name: Extend
+        icon: mdi:calendar-plus
+        tap_action:
+          action: toggle
+        show_state: false
+      - type: button
+        entity: input_boolean.sick_day_cancel
+        name: Cancel
+        icon: mdi:close-circle
+        tap_action:
+          action: toggle
+        show_state: false
