@@ -1,14 +1,14 @@
 {
   "name": "Sick Day Helper",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "slug": "sick_day",
   "description": "Sick day automations",
   "arch": ["amd64", "aarch64", "armv7", "armhf"],
   "startup": "services",
   "boot": "auto",
   "init": false,
-  "map": ["config:rw"]
-  ,
+  "homeassistant_api": true,
+  "map": ["config:rw"],
   "schema": {
     "enable_heartbeat": "bool",
     "LOG_LEVEL": "select(info|debug)"

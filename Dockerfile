@@ -8,4 +8,8 @@ RUN apk add --no-cache python3 py3-pip
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
 
+# Copy Python application and HA package
+COPY sick_day_helper/ /sick_day_helper/
+COPY packages/ /packages/
+
 CMD ["/run.sh"]

@@ -1,0 +1,54 @@
+# Sick Day Helper — HA Package
+# Provides the input helper entities for the Sick Day Helper add-on.
+# This file is auto-copied to /config/packages/ by the add-on.
+
+input_select:
+  sick_day_person:
+    name: "Sick Day - Person"
+    options:
+      - "(none)"
+    icon: mdi:account-alert
+
+  sick_day_duration_type:
+    name: "Sick Day - Duration Type"
+    options:
+      - "Number of Days"
+      - "Until Date"
+    icon: mdi:calendar-clock
+
+input_number:
+  sick_day_num_days:
+    name: "Sick Day - Number of Days"
+    min: 1
+    max: 14
+    step: 1
+    mode: slider
+    icon: mdi:counter
+
+input_datetime:
+  sick_day_end_date:
+    name: "Sick Day - End Date"
+    has_date: true
+    has_time: false
+    icon: mdi:calendar
+
+input_boolean:
+  sick_day_submit:
+    name: "Sick Day - Submit"
+    icon: mdi:check-circle
+
+  sick_day_cancel:
+    name: "Sick Day - Cancel"
+    icon: mdi:close-circle
+
+  sick_day_extend:
+    name: "Sick Day - Extend"
+    icon: mdi:calendar-plus
+
+  sick_day_active:
+    name: "Sick Day - Active"
+    icon: mdi:bed
+
+  sick_day_setup_complete:
+    name: "Sick Day - Setup Complete"
+    icon: mdi:cog-check
