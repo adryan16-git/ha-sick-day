@@ -1,0 +1,16 @@
+#!/usr/bin/with-contenv bashio
+
+# Log startup
+bashio::log.info "Starting Sick Day Helper add-on..."
+
+# Read options from config
+LOG_LEVEL=$(bashio::config 'LOG_LEVEL')
+bashio::log.info "Log level set to: $LOG_LEVEL"
+
+# Main service loop
+while true; do
+    # Placeholder: Add sick-day logic here
+    # Example: Check HA states, send notifications, etc.
+    bashio::log.debug "Sick Day Helper running..."
+    sleep 60
+done
