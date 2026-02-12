@@ -1,21 +1,15 @@
 {
   "name": "Sick Day Helper",
-  "slug": "sick_day",
-  "description": "Custom add-on for sick day automations and notifications.",
   "version": "1.0.0",
+  "slug": "sick_day",
+  "description": "Sick day automations",
+  "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
   "startup": "application",
   "boot": "auto",
-  "arch": [
-    "amd64",
-    "aarch64",
-    "armv7",
-    "armhf"
-  ],
-  "ports": {},
-  "options": {
-    "LOG_LEVEL": "info"
-  },
   "schema": {
-    "LOG_LEVEL": "str;info|debug|warning|error|critical"
+    "log_level": "select(info|debug|warning|error)"
+  },
+  "environment": {
+    "LOG_LEVEL": "${log_level}"
   }
 }
