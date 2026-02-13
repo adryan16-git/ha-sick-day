@@ -21,6 +21,7 @@ from sick_day_helper.constants import (
 )
 from sick_day_helper.package_installer import install_package
 from sick_day_helper.onboarding import run_onboarding
+from sick_day_helper.web_server import start_server
 from sick_day_helper.sick_day_manager import (
     activate_sick_day,
     deactivate_sick_day,
@@ -144,11 +145,14 @@ def startup():
     if install_package():
         logger.info("Package YAML installed — HA may need a restart to pick up new entities")
 
-    # Run onboarding if no mapping exists
-    if not config_manager.mapping_exists():
-        logger.info("No mapping found, running onboarding...")
+    # Start ingress web server
+    start_server()
+
+    # Send wizard notification if no mapping and wizard not completed
+    if not config_manager.mapping_exists() and not config_manager.wizard_completed():
+        logger.info("No mapping found, sending wizard notification...")
         run_onboarding()
-    else:
+    elif config_manager.mapping_exists():
         logger.info("Mapping exists with %d person(s)", len(config_manager.load_mapping()))
 
     # Verify state consistency on startup

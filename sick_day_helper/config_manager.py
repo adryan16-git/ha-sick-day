@@ -4,7 +4,7 @@ import json
 import logging
 import os
 
-from sick_day_helper.constants import DATA_DIR, MAPPING_FILE, STATE_FILE
+from sick_day_helper.constants import DATA_DIR, MAPPING_FILE, STATE_FILE, WIZARD_STATE_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -116,3 +116,25 @@ def get_all_currently_disabled():
     for entry in state.values():
         disabled.update(entry.get("disabled_automations", []))
     return disabled
+
+
+# --- Wizard State ---
+
+def wizard_completed():
+    """Check if the setup wizard has been completed."""
+    data = _read_json(WIZARD_STATE_FILE)
+    return bool(data and data.get("completed"))
+
+
+def mark_wizard_completed():
+    """Mark the setup wizard as completed."""
+    from datetime import datetime
+    _write_json(WIZARD_STATE_FILE, {
+        "completed": True,
+        "completed_at": datetime.now().isoformat(),
+    })
+
+
+def mark_wizard_incomplete():
+    """Reset wizard state for re-run."""
+    _write_json(WIZARD_STATE_FILE, {"completed": False})

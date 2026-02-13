@@ -37,5 +37,10 @@ NOTIFICATION_EXPIRATION = "sick_day_expiration"
 NOTIFICATION_ONBOARDING = "sick_day_onboarding"
 NOTIFICATION_CONFIRMATION = "sick_day_confirmation"
 
+# Ingress / Web UI
+INGRESS_PORT = 8099
+WEB_UI_DIR = "/web_ui"
+WIZARD_STATE_FILE = os.path.join(DATA_DIR, "wizard_state.json")
+
 # Logging
 LOG_LEVEL = os.environ.get("SDH_LOG_LEVEL", "info").upper()

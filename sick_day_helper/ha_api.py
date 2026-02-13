@@ -130,3 +130,25 @@ def dismiss_persistent_notification(notification_id):
 def fire_event(event_type, event_data=None):
     """Fire a Home Assistant event."""
     return _request("POST", f"/events/{event_type}", event_data or {})
+
+
+def render_template(template_str):
+    """Render a Jinja2 template via HA's API. Returns the rendered string."""
+    url = f"{SUPERVISOR_URL}/template"
+    headers = {
+        "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    body = json.dumps({"template": template_str}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode()
+
+
+def get_automation_config(automation_id):
+    """Get automation config by its config ID. Returns dict or None."""
+    try:
+        return _request("GET", f"/config/automation/config/{automation_id}")
+    except Exception:
+        logger.debug("Could not fetch automation config for %s", automation_id)
+        return None

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sick Day Helper — Setup Wizard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Sick Day Helper</h1>
+      <div id="progress-bar">
+        <div class="step" data-step="1"><span class="num">1</span> Welcome</div>
+        <div class="step" data-step="2"><span class="num">2</span> People</div>
+        <div class="step" data-step="3"><span class="num">3</span> Areas</div>
+        <div class="step" data-step="4"><span class="num">4</span> Review</div>
+        <div class="step" data-step="5"><span class="num">5</span> Done</div>
+      </div>
+    </header>
+
+    <main id="wizard-content">
+      <!-- Step 1: Welcome -->
+      <section id="step-1" class="step-panel">
+        <h2>Welcome</h2>
+        <div id="welcome-loading" class="loading">Loading discovery data...</div>
+        <div id="welcome-content" class="hidden">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-num" id="stat-people">0</div>
+              <div class="stat-label">People</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-num" id="stat-areas">0</div>
+              <div class="stat-label">Areas</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-num" id="stat-automations">0</div>
+              <div class="stat-label">Automations</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-num" id="stat-time">0</div>
+              <div class="stat-label">Time-triggered</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-num" id="stat-day">0</div>
+              <div class="stat-label">Day-filtered</div>
+            </div>
+          </div>
+          <div id="welcome-existing" class="hidden">
+            <p class="info-box">Setup has already been completed. You can view your current mapping or re-run the wizard.</p>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="Wizard.startWizard()">Re-run Wizard</button>
+            </div>
+          </div>
+          <div id="welcome-new">
+            <p>The wizard will help you map people to automations that should be disabled on sick days.</p>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="Wizard.startWizard()">Start Setup Wizard</button>
+              <button class="btn btn-secondary" onclick="Wizard.skipToAutoMapping()">Skip (use auto-mapping)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 2: People -->
+      <section id="step-2" class="step-panel hidden">
+        <h2>Select People</h2>
+        <p>Choose which people should be available for sick days.</p>
+        <div id="people-list" class="checkbox-list"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="Wizard.goToStep(1)">Back</button>
+          <button class="btn btn-primary" onclick="Wizard.submitPeople()">Next</button>
+        </div>
+      </section>
+
+      <!-- Step 3: Areas -->
+      <section id="step-3" class="step-panel hidden">
+        <h2>Assign Areas to People</h2>
+        <p>Assign each area's automations to a person. You can fine-tune individual automations in the next step.</p>
+        <div id="areas-list"></div>
+        <div id="unassigned-section" class="hidden">
+          <h3>Unassigned Automations</h3>
+          <p class="subtext">These automations are not in any HA area.</p>
+          <div id="unassigned-list"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="Wizard.goToStep(2)">Back</button>
+          <button class="btn btn-primary" onclick="Wizard.submitAreas()">Next</button>
+        </div>
+      </section>
+
+      <!-- Step 4: Review -->
+      <section id="step-4" class="step-panel hidden">
+        <h2>Review Mapping</h2>
+        <p>Review and fine-tune the automation mapping for each person.</p>
+        <div id="review-list"></div>
+        <div id="add-automation-row" class="hidden">
+          <h3>Add Unmapped Automation</h3>
+          <div class="inline-form">
+            <select id="add-auto-person"></select>
+            <select id="add-auto-automation"></select>
+            <button class="btn btn-small" onclick="Wizard.addAutomation()">Add</button>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="Wizard.goToStep(3)">Back</button>
+          <button class="btn btn-primary" onclick="Wizard.submitReview()">Save Mapping</button>
+        </div>
+      </section>
+
+      <!-- Step 5: Complete -->
+      <section id="step-5" class="step-panel hidden">
+        <h2>Setup Complete</h2>
+        <div id="complete-summary"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="Wizard.resetWizard()">Re-run Wizard</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="wizard.js"></script>
+</body>
+</html>
