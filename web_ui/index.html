@@ -23,7 +23,11 @@
       <!-- Step 1: Welcome -->
       <section id="step-1" class="step-panel">
         <h2>Welcome</h2>
-        <div id="welcome-loading" class="loading">Loading discovery data...</div>
+        <div id="welcome-loading" class="loading">
+          <div class="loading-spinner"></div>
+          <p>Discovering people, areas, and automations...</p>
+          <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+        </div>
         <div id="welcome-content" class="hidden">
           <div class="stats-grid">
             <div class="stat-card">
@@ -68,6 +72,7 @@
         <h2>Select People</h2>
         <p>Choose which people should be available for sick days.</p>
         <div id="people-list" class="checkbox-list"></div>
+        <p class="create-link">Don't see someone? <a href="/config/person" target="_top">Create a new person</a> in Settings &gt; People, then re-run the wizard.</p>
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="Wizard.goToStep(1)">Back</button>
           <button class="btn btn-primary" onclick="Wizard.submitPeople()">Next</button>
