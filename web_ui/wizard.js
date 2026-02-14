@@ -121,11 +121,6 @@ const Wizard = (() => {
     const container = document.getElementById("areas-list");
     container.innerHTML = "";
 
-    const personOptions = selectedPeople.map(pid => {
-      const person = discoveryData.people.find(p => p.entity_id === pid);
-      return `<option value="${pid}">${esc(person ? person.friendly_name : pid)}</option>`;
-    }).join("");
-
     discoveryData.areas.forEach(area => {
       if (area.automation_ids.length === 0) return;
 
@@ -139,22 +134,25 @@ const Wizard = (() => {
         return `<li>${esc(name)}${badges}</li>`;
       }).join("");
 
+      const bestMatches = findBestPeopleForArea(area);
+      const personCheckboxes = selectedPeople.map(pid => {
+        const person = discoveryData.people.find(p => p.entity_id === pid);
+        const name = esc(person ? person.friendly_name : pid);
+        const checked = bestMatches.includes(pid) ? "checked" : "";
+        return `<label class="person-check">
+          <input type="checkbox" data-area-id="${area.area_id}" value="${pid}" ${checked}>
+          ${name}
+        </label>`;
+      }).join("");
+
       card.innerHTML = `
         <div class="area-card-header">
           <h4>${esc(area.name)}</h4>
           <span class="count">${area.automation_ids.length} automation(s)</span>
         </div>
-        <select data-area-id="${area.area_id}">
-          <option value="">(unassigned)</option>
-          ${personOptions}
-        </select>
+        <div class="person-checks">${personCheckboxes}</div>
         <ul class="area-automations">${autoList}</ul>
       `;
-
-      // Pre-select based on suggested mapping
-      const select = card.querySelector("select");
-      const bestMatch = findBestPersonForArea(area);
-      if (bestMatch) select.value = bestMatch;
 
       container.appendChild(card);
     });
@@ -172,24 +170,27 @@ const Wizard = (() => {
         const auto = discoveryData.automations.find(a => a.entity_id === aid);
         const name = auto ? auto.friendly_name : aid;
         const badges = getBadges(auto);
+        const bestMatches = findBestPeopleForAutomation(aid);
+
+        const personCheckboxes = selectedPeople.map(pid => {
+          const person = discoveryData.people.find(p => p.entity_id === pid);
+          const pname = esc(person ? person.friendly_name : pid);
+          const checked = bestMatches.includes(pid) ? "checked" : "";
+          return `<label class="person-check">
+            <input type="checkbox" data-unassigned-auto="${aid}" value="${pid}" ${checked}>
+            ${pname}
+          </label>`;
+        }).join("");
 
         const item = document.createElement("div");
         item.className = "area-card";
         item.style.padding = "10px 16px";
         item.innerHTML = `
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="flex:1">${esc(name)}${badges}</span>
-            <select data-unassigned-auto="${aid}" style="width:auto;min-width:140px">
-              <option value="">(skip)</option>
-              ${personOptions}
-            </select>
+          <div class="unassigned-auto-row">
+            <span class="unassigned-auto-name">${esc(name)}${badges}</span>
+            <div class="person-checks">${personCheckboxes}</div>
           </div>
         `;
-
-        // Pre-select
-        const select = item.querySelector("select");
-        const bestPerson = findBestPersonForAutomation(aid);
-        if (bestPerson) select.value = bestPerson;
 
         unassignedList.appendChild(item);
       });
@@ -198,33 +199,34 @@ const Wizard = (() => {
     }
   }
 
-  function findBestPersonForArea(area) {
+  function findBestPeopleForArea(area) {
     const suggested = discoveryData.suggested_mapping || {};
+    const matches = [];
     for (const pid of selectedPeople) {
       const autoIds = suggested[pid] || [];
       const overlap = area.automation_ids.filter(a => autoIds.includes(a));
-      if (overlap.length > 0) return pid;
+      if (overlap.length > 0) matches.push(pid);
     }
-    return "";
+    return matches;
   }
 
-  function findBestPersonForAutomation(autoId) {
+  function findBestPeopleForAutomation(autoId) {
     const suggested = discoveryData.suggested_mapping || {};
+    const matches = [];
     for (const pid of selectedPeople) {
-      if ((suggested[pid] || []).includes(autoId)) return pid;
+      if ((suggested[pid] || []).includes(autoId)) matches.push(pid);
     }
-    return "";
+    return matches;
   }
 
   function submitAreas() {
-    // Collect area assignments
+    // Collect area assignments (multi-select)
     mapping = {};
     selectedPeople.forEach(pid => { mapping[pid] = []; });
 
-    document.querySelectorAll("[data-area-id]").forEach(select => {
-      const areaId = select.dataset.areaId;
-      const personId = select.value;
-      if (!personId) return;
+    document.querySelectorAll("[data-area-id]:checked").forEach(cb => {
+      const areaId = cb.dataset.areaId;
+      const personId = cb.value;
 
       const area = discoveryData.areas.find(a => a.area_id === areaId);
       if (area) {
@@ -236,11 +238,10 @@ const Wizard = (() => {
       }
     });
 
-    // Collect unassigned automation assignments
-    document.querySelectorAll("[data-unassigned-auto]").forEach(select => {
-      const autoId = select.dataset.unassignedAuto;
-      const personId = select.value;
-      if (!personId) return;
+    // Collect unassigned automation assignments (multi-select)
+    document.querySelectorAll("[data-unassigned-auto]:checked").forEach(cb => {
+      const autoId = cb.dataset.unassignedAuto;
+      const personId = cb.value;
       if (!mapping[personId].includes(autoId)) {
         mapping[personId].push(autoId);
       }

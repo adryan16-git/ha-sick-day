@@ -279,6 +279,48 @@ header h1 {
   padding: 2px 0;
 }
 
+/* Person multi-select checkboxes */
+.person-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.person-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.person-check:has(input:checked) {
+  border-color: var(--primary);
+  background: #e3f2fd;
+}
+
+.person-check input {
+  margin: 0;
+}
+
+.unassigned-auto-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.unassigned-auto-name {
+  flex: 1;
+  min-width: 150px;
+}
+
 /* Badges */
 .badge {
   display: inline-block;
