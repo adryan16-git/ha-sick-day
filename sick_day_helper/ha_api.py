@@ -35,6 +35,9 @@ def _request(method, path, data=None):
         except urllib.error.HTTPError as e:
             last_error = e
             resp_body = e.read().decode() if e.fp else ""
+            if e.code == 404:
+                logger.debug("HA API %s %s returned 404: %s", method, path, resp_body)
+                raise
             logger.warning(
                 "HA API %s %s returned %s (attempt %d/%d): %s",
                 method, path, e.code, attempt + 1, MAX_RETRIES, resp_body,
@@ -59,8 +62,13 @@ def get_state(entity_id):
 
 
 def get_state_value(entity_id):
-    """Get just the state value string for an entity."""
-    result = get_state(entity_id)
+    """Get just the state value string for an entity. Returns None if entity doesn't exist."""
+    try:
+        result = get_state(entity_id)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
     return result.get("state") if result else None
 
 
