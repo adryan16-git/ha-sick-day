@@ -1,13 +1,19 @@
-"""Ingress HTTP server for the Sick Day Helper setup wizard."""
+"""Ingress HTTP server for the Sick Day Helper panel."""
 
 import json
 import logging
 import os
 import threading
+from datetime import date, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from sick_day_helper import ha_api, config_manager
 from sick_day_helper.discovery import get_discovery_summary
+from sick_day_helper.sick_day_manager import (
+    activate_sick_day,
+    deactivate_sick_day,
+    extend_sick_day,
+)
 from sick_day_helper.constants import (
     INGRESS_PORT,
     WEB_UI_DIR,
@@ -61,6 +67,8 @@ class WizardHandler(BaseHTTPRequestHandler):
             return self._handle_discovery()
         if path == "/api/mapping":
             return self._handle_get_mapping()
+        if path == "/api/sick-days":
+            return self._handle_get_sick_days()
 
         # Static files
         self._serve_static(path)
@@ -74,6 +82,12 @@ class WizardHandler(BaseHTTPRequestHandler):
             return self._handle_wizard_complete()
         if path == "/api/wizard/reset":
             return self._handle_wizard_reset()
+        if path == "/api/sick-days/activate":
+            return self._handle_activate()
+        if path == "/api/sick-days/cancel":
+            return self._handle_cancel()
+        if path == "/api/sick-days/extend":
+            return self._handle_extend()
 
         self._send_error_json(404, "Not found")
 
@@ -149,6 +163,110 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True})
         except Exception as e:
             logger.exception("Failed to reset wizard")
+            self._send_error_json(500, str(e))
+
+    # --- Sick Day API ---
+
+    @staticmethod
+    def _compute_end_date(duration_type, duration_value):
+        """Compute end date from duration_type ('days' or 'date') and value."""
+        if duration_type == "days":
+            try:
+                num_days = int(float(duration_value))
+            except (TypeError, ValueError):
+                num_days = 1
+            num_days = max(1, min(num_days, 365))
+            return (date.today() + timedelta(days=num_days)).isoformat()
+        else:
+            # 'date' — value is an ISO date string
+            return str(duration_value)
+
+    def _handle_get_sick_days(self):
+        try:
+            state = config_manager.load_state()
+            result = []
+            for person_id, entry in state.items():
+                try:
+                    st = ha_api.get_state(person_id)
+                    name = st.get("attributes", {}).get("friendly_name", person_id) if st else person_id
+                except Exception:
+                    name = person_id
+                result.append({
+                    "person_id": person_id,
+                    "person_name": name,
+                    "end_date": entry.get("end_date"),
+                    "disabled_automations": entry.get("disabled_automations", []),
+                })
+            self._send_json(result)
+        except Exception as e:
+            logger.exception("Failed to get sick days")
+            self._send_error_json(500, str(e))
+
+    def _handle_activate(self):
+        try:
+            body = self._read_body()
+            person_id = body.get("person_id")
+            duration_type = body.get("duration_type", "days")
+            duration_value = body.get("duration_value", 1)
+
+            if not person_id:
+                return self._send_error_json(400, "person_id is required")
+
+            mapping = config_manager.load_mapping()
+            if person_id not in mapping:
+                return self._send_error_json(400, f"Person {person_id} not found in mapping")
+
+            # Check if already active
+            if config_manager.get_person_state(person_id):
+                return self._send_error_json(400, f"Sick day already active for {person_id}")
+
+            end_date = self._compute_end_date(duration_type, duration_value)
+            # activate_sick_day accepts display name or entity ID — pass entity ID directly
+            ok = activate_sick_day(person_id, end_date)
+            if ok:
+                self._send_json({"ok": True, "end_date": end_date})
+            else:
+                self._send_error_json(500, "Failed to activate sick day")
+        except Exception as e:
+            logger.exception("Failed to activate sick day")
+            self._send_error_json(500, str(e))
+
+    def _handle_cancel(self):
+        try:
+            body = self._read_body()
+            person_id = body.get("person_id")
+
+            if not person_id:
+                return self._send_error_json(400, "person_id is required")
+
+            ok = deactivate_sick_day(person_id)
+            if ok:
+                self._send_json({"ok": True})
+            else:
+                self._send_error_json(400, f"No active sick day for {person_id}")
+        except Exception as e:
+            logger.exception("Failed to cancel sick day")
+            self._send_error_json(500, str(e))
+
+    def _handle_extend(self):
+        try:
+            body = self._read_body()
+            person_id = body.get("person_id")
+            duration_type = body.get("duration_type", "days")
+            duration_value = body.get("duration_value", 1)
+
+            if not person_id:
+                return self._send_error_json(400, "person_id is required")
+
+            end_date = self._compute_end_date(duration_type, duration_value)
+            # extend_sick_day accepts display name or entity ID
+            ok = extend_sick_day(person_id, end_date)
+            if ok:
+                self._send_json({"ok": True, "end_date": end_date})
+            else:
+                self._send_error_json(400, f"No active sick day to extend for {person_id}")
+        except Exception as e:
+            logger.exception("Failed to extend sick day")
             self._send_error_json(500, str(e))
 
     def _serve_static(self, path):

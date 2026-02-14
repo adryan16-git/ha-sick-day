@@ -1,4 +1,4 @@
-/* Sick Day Helper — Wizard Styles (HA-inspired) */
+/* Sick Day Helper — Panel Styles (HA-inspired) */
 
 :root {
   --primary: #03a9f4;
@@ -10,11 +10,17 @@
   --text-secondary: #757575;
   --border: #e0e0e0;
   --success: #4caf50;
+  --danger: #e53935;
   --badge-time: #2196f3;
   --badge-day: #ff9800;
   --step-inactive: #bdbdbd;
   --step-active: #03a9f4;
   --step-done: #4caf50;
+  --sidebar-bg: #263238;
+  --sidebar-text: #eceff1;
+  --sidebar-hover: #37474f;
+  --sidebar-active: #03a9f4;
+  --sidebar-width: 200px;
 }
 
 * {
@@ -31,28 +37,277 @@ body {
   padding: 0;
 }
 
+/* Layout: sidebar + content */
 #app {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 16px;
+  display: flex;
+  min-height: 100vh;
 }
 
-header {
-  margin-bottom: 24px;
+/* Sidebar */
+#sidebar {
+  width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-header h1 {
-  font-size: 1.5rem;
+.sidebar-title {
+  padding: 20px 16px 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.nav-list {
+  list-style: none;
+  padding: 8px 0;
+}
+
+.nav-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.15s;
+  color: var(--sidebar-text);
+  opacity: 0.75;
+}
+
+.nav-item:hover {
+  background: var(--sidebar-hover);
+  opacity: 1;
+}
+
+.nav-item.active {
+  background: rgba(3, 169, 244, 0.15);
+  opacity: 1;
+  border-left: 3px solid var(--sidebar-active);
+  padding-left: 13px;
+}
+
+.nav-icon {
+  font-size: 0.5rem;
+  line-height: 1;
+}
+
+/* Content area */
+#content {
+  flex: 1;
+  padding: 24px;
+  max-width: 900px;
+  overflow-y: auto;
+}
+
+.page h2 {
+  font-size: 1.4rem;
   font-weight: 500;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   color: var(--text);
 }
 
-/* Progress bar */
+.page h3 {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Sick Day page — active sick day cards */
+#active-sick-days {
+  margin-bottom: 28px;
+}
+
+.sick-card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  border-left: 4px solid var(--accent);
+}
+
+.sick-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sick-card-header h4 {
+  font-weight: 500;
+  font-size: 1rem;
+}
+
+.sick-card-header .end-date {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.sick-card-autos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.sick-card-autos .auto-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: var(--bg);
+  border-radius: 12px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.sick-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.no-active {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 16px 0;
+}
+
+/* Extend form (inline in sick card) */
+.extend-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.extend-form label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.extend-form input {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  width: 60px;
+}
+
+/* Declare form */
+.form-card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.form-group select,
+.form-group input[type="date"] {
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--card-bg);
+}
+
+.form-group input[type="range"] {
+  width: 100%;
+  max-width: 320px;
+}
+
+/* Toggle group */
+.toggle-group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  padding: 6px 16px;
+  border: none;
+  background: var(--card-bg);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s, color 0.15s;
+  color: var(--text-secondary);
+}
+
+.toggle-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+.toggle-btn:not(.active):hover {
+  background: var(--bg);
+}
+
+/* Mapping page */
+.mapping-card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.mapping-card h4 {
+  font-weight: 500;
+  font-size: 1rem;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.mapping-card .auto-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mapping-card .auto-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: var(--bg);
+  border-radius: 14px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.mapping-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 16px 0;
+}
+
+/* Progress bar (wizard) */
 #progress-bar {
   display: flex;
   gap: 4px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
 #progress-bar .step {
@@ -126,10 +381,6 @@ header h1 {
   font-size: 0.85rem;
 }
 
-.hidden {
-  display: none !important;
-}
-
 /* Stats grid */
 .stats-grid {
   display: grid;
@@ -191,6 +442,15 @@ header h1 {
 
 .btn-secondary:hover {
   background: #ccc;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #c62828;
 }
 
 .btn-small {
@@ -400,6 +660,17 @@ header h1 {
   padding: 12px 16px;
   border-radius: 4px;
   color: var(--text);
+  margin-bottom: 16px;
+}
+
+.info-box a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.info-box a:hover {
+  text-decoration: underline;
 }
 
 /* Loading */
@@ -482,9 +753,44 @@ header h1 {
 }
 
 /* Responsive */
-@media (max-width: 600px) {
+@media (max-width: 700px) {
   #app {
-    padding: 8px;
+    flex-direction: column;
+  }
+
+  #sidebar {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .sidebar-title {
+    padding: 12px 16px;
+    border-bottom: none;
+    border-right: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap;
+  }
+
+  .nav-list {
+    display: flex;
+    flex: 1;
+    padding: 0;
+    overflow-x: auto;
+  }
+
+  .nav-item {
+    padding: 12px 14px;
+    white-space: nowrap;
+  }
+
+  .nav-item.active {
+    border-left: none;
+    border-bottom: 3px solid var(--sidebar-active);
+    padding-left: 14px;
+  }
+
+  #content {
+    padding: 16px;
   }
 
   .step-panel {

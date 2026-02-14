@@ -1,22 +1,317 @@
-/* Sick Day Helper — Setup Wizard Logic */
+/* Sick Day Helper — Panel Logic (Page Router + Sick Day + Mapping + Wizard) */
+
+// --- Shared API helper ---
+
+async function api(method, path, body) {
+  const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(path, opts);
+  if (!resp.ok) {
+    const errBody = await resp.json().catch(() => ({}));
+    throw new Error(errBody.error || `API ${method} ${path}: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+function esc(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ============================================================
+// App — Page Router + Sick Day + Mapping
+// ============================================================
+
+const App = (() => {
+  let currentPage = "sick-day";
+  let durationType = "days";
+
+  function navigateTo(page) {
+    currentPage = page;
+
+    // Update nav
+    document.querySelectorAll(".nav-item").forEach(el => {
+      el.classList.toggle("active", el.dataset.page === page);
+    });
+
+    // Update pages
+    document.querySelectorAll(".page").forEach(el => el.classList.add("hidden"));
+    document.getElementById(`page-${page}`).classList.remove("hidden");
+
+    // Load page data
+    if (page === "sick-day") loadSickDayPage();
+    else if (page === "mapping") loadMappingPage();
+    else if (page === "setup") Wizard.init();
+  }
+
+  // --- Nav click handlers ---
+
+  function initNav() {
+    document.querySelectorAll(".nav-item").forEach(el => {
+      el.addEventListener("click", () => navigateTo(el.dataset.page));
+    });
+  }
+
+  // --- Sick Day Page ---
+
+  async function loadSickDayPage() {
+    const loading = document.getElementById("sick-day-loading");
+    const content = document.getElementById("sick-day-content");
+    loading.classList.remove("hidden");
+    content.classList.add("hidden");
+
+    try {
+      const [sickDays, mapping] = await Promise.all([
+        api("GET", "api/sick-days"),
+        api("GET", "api/mapping"),
+      ]);
+
+      renderActiveSickDays(sickDays);
+      renderDeclareForm(mapping, sickDays);
+
+      loading.classList.add("hidden");
+      content.classList.remove("hidden");
+    } catch (e) {
+      loading.innerHTML = '<p>Failed to load data. Is the add-on running?</p>';
+      console.error(e);
+    }
+  }
+
+  function renderActiveSickDays(sickDays) {
+    const container = document.getElementById("active-list");
+
+    if (sickDays.length === 0) {
+      container.innerHTML = '<p class="no-active">No active sick days.</p>';
+      return;
+    }
+
+    container.innerHTML = sickDays.map(sd => {
+      const autoBadges = sd.disabled_automations.map(a => {
+        const shortName = a.replace("automation.", "").replace(/_/g, " ");
+        return `<span class="auto-badge">${esc(shortName)}</span>`;
+      }).join("");
+
+      return `
+        <div class="sick-card" data-person-id="${esc(sd.person_id)}">
+          <div class="sick-card-header">
+            <h4>${esc(sd.person_name)}</h4>
+            <span class="end-date">Until ${esc(sd.end_date)}</span>
+          </div>
+          <div class="sick-card-autos">${autoBadges || '<span class="auto-badge">no automations recorded</span>'}</div>
+          <div class="sick-card-actions">
+            <button class="btn btn-small" onclick="App.showExtendForm('${esc(sd.person_id)}')">Extend</button>
+            <button class="btn btn-small btn-danger" onclick="App.cancelSickDay('${esc(sd.person_id)}')">Cancel</button>
+          </div>
+          <div class="extend-form hidden" id="extend-form-${esc(sd.person_id)}">
+            <label>Extend by</label>
+            <input type="number" min="1" max="14" value="1" id="extend-days-${esc(sd.person_id)}">
+            <label>day(s)</label>
+            <button class="btn btn-small" onclick="App.extendSickDay('${esc(sd.person_id)}')">Confirm</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderDeclareForm(mapping, sickDays) {
+    const noMappingMsg = document.getElementById("no-mapping-msg");
+    const declareForm = document.getElementById("declare-form");
+    const personSelect = document.getElementById("declare-person");
+
+    const personIds = Object.keys(mapping);
+    if (personIds.length === 0) {
+      noMappingMsg.classList.remove("hidden");
+      declareForm.classList.add("hidden");
+      return;
+    }
+
+    noMappingMsg.classList.add("hidden");
+    declareForm.classList.remove("hidden");
+
+    // Filter out people with already-active sick days
+    const activeIds = new Set(sickDays.map(sd => sd.person_id));
+    const available = personIds.filter(pid => !activeIds.has(pid));
+
+    if (available.length === 0) {
+      personSelect.innerHTML = '<option value="">All people have active sick days</option>';
+      document.getElementById("declare-submit").disabled = true;
+      return;
+    }
+
+    document.getElementById("declare-submit").disabled = false;
+
+    // Build options — resolve friendly names from active sick day data or use entity ID
+    personSelect.innerHTML = available.map(pid => {
+      // Try to find a friendly name
+      const shortName = pid.replace("person.", "").replace(/_/g, " ");
+      const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
+      return `<option value="${esc(pid)}">${esc(capitalized)}</option>`;
+    }).join("");
+
+    // Set tomorrow as default min date
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateInput = document.getElementById("declare-date");
+    dateInput.min = tomorrow.toISOString().split("T")[0];
+    dateInput.value = tomorrow.toISOString().split("T")[0];
+  }
+
+  function setDurationType(type) {
+    durationType = type;
+    document.querySelectorAll(".toggle-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.type === type);
+    });
+    document.getElementById("duration-days-group").classList.toggle("hidden", type !== "days");
+    document.getElementById("duration-date-group").classList.toggle("hidden", type !== "date");
+  }
+
+  async function declareSickDay() {
+    const personId = document.getElementById("declare-person").value;
+    if (!personId) return;
+
+    const btn = document.getElementById("declare-submit");
+    btn.disabled = true;
+    btn.textContent = "Submitting...";
+
+    try {
+      let durationValue;
+      if (durationType === "days") {
+        durationValue = parseInt(document.getElementById("declare-days").value);
+      } else {
+        durationValue = document.getElementById("declare-date").value;
+      }
+
+      await api("POST", "api/sick-days/activate", {
+        person_id: personId,
+        duration_type: durationType,
+        duration_value: durationValue,
+      });
+
+      // Reload the page
+      await loadSickDayPage();
+    } catch (e) {
+      alert("Failed to declare sick day: " + e.message);
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Submit";
+    }
+  }
+
+  async function cancelSickDay(personId) {
+    if (!confirm("Cancel sick day? Automations will be re-enabled.")) return;
+
+    try {
+      await api("POST", "api/sick-days/cancel", { person_id: personId });
+      await loadSickDayPage();
+    } catch (e) {
+      alert("Failed to cancel sick day: " + e.message);
+      console.error(e);
+    }
+  }
+
+  function showExtendForm(personId) {
+    const form = document.getElementById(`extend-form-${personId}`);
+    form.classList.toggle("hidden");
+  }
+
+  async function extendSickDay(personId) {
+    const daysInput = document.getElementById(`extend-days-${personId}`);
+    const days = parseInt(daysInput.value) || 1;
+
+    try {
+      await api("POST", "api/sick-days/extend", {
+        person_id: personId,
+        duration_type: "days",
+        duration_value: days,
+      });
+      await loadSickDayPage();
+    } catch (e) {
+      alert("Failed to extend sick day: " + e.message);
+      console.error(e);
+    }
+  }
+
+  // --- Mapping Page ---
+
+  async function loadMappingPage() {
+    const loading = document.getElementById("mapping-loading");
+    const content = document.getElementById("mapping-content");
+    loading.classList.remove("hidden");
+    content.classList.add("hidden");
+
+    try {
+      const mapping = await api("GET", "api/mapping");
+      renderMapping(mapping);
+      loading.classList.add("hidden");
+      content.classList.remove("hidden");
+    } catch (e) {
+      loading.innerHTML = '<p>Failed to load mapping.</p>';
+      console.error(e);
+    }
+  }
+
+  function renderMapping(mapping) {
+    const container = document.getElementById("mapping-list");
+    const personIds = Object.keys(mapping);
+
+    if (personIds.length === 0) {
+      container.innerHTML = '<p class="mapping-empty">No mapping configured. Go to Setup to create one.</p>';
+      return;
+    }
+
+    container.innerHTML = personIds.map(pid => {
+      const autos = mapping[pid] || [];
+      const shortName = pid.replace("person.", "").replace(/_/g, " ");
+      const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
+
+      const badges = autos.length > 0
+        ? autos.map(a => {
+            const name = a.replace("automation.", "").replace(/_/g, " ");
+            return `<span class="auto-badge">${esc(name)}</span>`;
+          }).join("")
+        : '<span class="auto-badge">no automations</span>';
+
+      return `
+        <div class="mapping-card">
+          <h4>${esc(capitalized)}</h4>
+          <div class="auto-badges">${badges}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // --- Boot ---
+
+  function boot() {
+    initNav();
+    loadSickDayPage();
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+
+  return {
+    navigateTo,
+    setDurationType,
+    declareSickDay,
+    cancelSickDay,
+    showExtendForm,
+    extendSickDay,
+    loadSickDayPage,
+  };
+})();
+
+// ============================================================
+// Wizard — Setup page (all 5 steps, unchanged logic)
+// ============================================================
 
 const Wizard = (() => {
   let currentStep = 1;
   let discoveryData = null;
   let selectedPeople = [];
-  let areaAssignments = {};   // area_id -> person entity_id
-  let unassignedAssignments = {}; // automation entity_id -> person entity_id
-  let mapping = {};           // person entity_id -> [automation entity_ids]
-
-  // --- API helpers ---
-
-  async function api(method, path, body) {
-    const opts = { method, headers: { "Content-Type": "application/json" } };
-    if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(path, opts);
-    if (!resp.ok) throw new Error(`API ${method} ${path}: ${resp.status}`);
-    return resp.json();
-  }
+  let mapping = {};
+  let initialized = false;
 
   // --- Step navigation ---
 
@@ -37,6 +332,9 @@ const Wizard = (() => {
   // --- Step 1: Welcome ---
 
   async function init() {
+    if (initialized) return;
+    initialized = true;
+
     goToStep(1);
 
     try {
@@ -220,7 +518,6 @@ const Wizard = (() => {
   }
 
   function submitAreas() {
-    // Collect area assignments (multi-select)
     mapping = {};
     selectedPeople.forEach(pid => { mapping[pid] = []; });
 
@@ -238,7 +535,6 @@ const Wizard = (() => {
       }
     });
 
-    // Collect unassigned automation assignments (multi-select)
     document.querySelectorAll("[data-unassigned-auto]:checked").forEach(cb => {
       const autoId = cb.dataset.unassignedAuto;
       const personId = cb.value;
@@ -247,7 +543,6 @@ const Wizard = (() => {
       }
     });
 
-    // Sort each person's automations
     for (const pid of selectedPeople) {
       mapping[pid].sort();
     }
@@ -291,7 +586,6 @@ const Wizard = (() => {
       container.appendChild(section);
     });
 
-    // Show add-automation row if there are unmapped automations
     updateAddAutomationRow();
   }
 
@@ -419,6 +713,7 @@ const Wizard = (() => {
   async function resetWizard() {
     try {
       await api("POST", "api/wizard/reset");
+      initialized = false;
       await init();
     } catch (e) {
       alert("Failed to reset wizard: " + e.message);
@@ -436,16 +731,8 @@ const Wizard = (() => {
     return b;
   }
 
-  function esc(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
-  // --- Boot ---
-  init();
-
   return {
+    init,
     goToStep,
     startWizard,
     submitPeople,
