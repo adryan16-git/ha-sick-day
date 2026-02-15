@@ -126,6 +126,14 @@ def wizard_completed():
     return bool(data and data.get("completed"))
 
 
+def wizard_completed_at():
+    """Return the ISO timestamp of when the wizard was last completed, or None."""
+    data = _read_json(WIZARD_STATE_FILE)
+    if data and data.get("completed"):
+        return data.get("completed_at")
+    return None
+
+
 def mark_wizard_completed():
     """Mark the setup wizard as completed."""
     from datetime import datetime

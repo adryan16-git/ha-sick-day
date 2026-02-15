@@ -338,28 +338,52 @@ const Wizard = (() => {
     goToStep(1);
 
     try {
-      const [status, discovery] = await Promise.all([
-        api("GET", "api/status"),
-        api("GET", "api/discovery"),
-      ]);
+      const status = await api("GET", "api/status");
 
+      // If wizard already completed, show timestamp instead of running discovery
+      if (status.wizard_completed) {
+        let stamp = "";
+        if (status.wizard_completed_at) {
+          const d = new Date(status.wizard_completed_at);
+          stamp = d.toLocaleString();
+        }
+
+        document.getElementById("welcome-loading").classList.add("hidden");
+        document.getElementById("welcome-content").classList.remove("hidden");
+        document.getElementById("welcome-new").classList.add("hidden");
+        document.getElementById("welcome-existing").classList.remove("hidden");
+        document.getElementById("wizard-completed-at").textContent = stamp;
+        // Hide stats since we didn't run discovery
+        document.querySelector(".stats-grid").classList.add("hidden");
+        return;
+      }
+
+      // First-time setup — run discovery
+      await runDiscovery();
+    } catch (e) {
+      document.getElementById("welcome-loading").textContent =
+        "Failed to load. Is the add-on running?";
+      console.error(e);
+    }
+  }
+
+  async function runDiscovery() {
+    document.getElementById("welcome-loading").classList.remove("hidden");
+    document.getElementById("welcome-content").classList.add("hidden");
+    document.querySelector(".stats-grid").classList.remove("hidden");
+
+    try {
+      const discovery = await api("GET", "api/discovery");
       discoveryData = discovery;
 
-      // Populate stats
       document.getElementById("stat-people").textContent = discovery.counts.people;
       document.getElementById("stat-areas").textContent = discovery.counts.areas;
       document.getElementById("stat-automations").textContent = discovery.counts.automations;
       document.getElementById("stat-time").textContent = discovery.counts.time_triggered;
       document.getElementById("stat-day").textContent = discovery.counts.day_filtered;
 
-      // Show existing or new
-      if (status.wizard_completed) {
-        document.getElementById("welcome-existing").classList.remove("hidden");
-        document.getElementById("welcome-new").classList.add("hidden");
-      } else {
-        document.getElementById("welcome-existing").classList.add("hidden");
-        document.getElementById("welcome-new").classList.remove("hidden");
-      }
+      document.getElementById("welcome-existing").classList.add("hidden");
+      document.getElementById("welcome-new").classList.remove("hidden");
 
       document.getElementById("welcome-loading").classList.add("hidden");
       document.getElementById("welcome-content").classList.remove("hidden");
@@ -372,7 +396,12 @@ const Wizard = (() => {
 
   // --- Step 2: People ---
 
-  function startWizard() {
+  async function startWizard() {
+    // If discovery hasn't been loaded yet (re-run from completed state), run it now
+    if (!discoveryData) {
+      goToStep(1);
+      await runDiscovery();
+    }
     renderPeopleStep();
     goToStep(2);
   }
@@ -714,6 +743,7 @@ const Wizard = (() => {
     try {
       await api("POST", "api/wizard/reset");
       initialized = false;
+      discoveryData = null;
       await init();
     } catch (e) {
       alert("Failed to reset wizard: " + e.message);

@@ -304,6 +304,12 @@ body {
 }
 
 /* Progress bar (wizard) */
+.wizard-timestamp {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
 #progress-bar {
   display: flex;
   gap: 4px;
