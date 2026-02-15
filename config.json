@@ -1,6 +1,6 @@
 {
   "name": "Sick Day Helper",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "slug": "sick_day",
   "description": "Sick day automations",
   "arch": ["amd64", "aarch64", "armv7", "armhf"],

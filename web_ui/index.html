@@ -84,10 +84,32 @@
         <div id="mapping-content" class="hidden">
           <div id="mapping-list"></div>
           <div class="btn-row" style="margin-top: 24px;">
-            <button class="btn btn-secondary" onclick="App.navigateTo('setup')">Edit Mapping</button>
+            <button class="btn btn-outline" id="mapping-edit-btn" onclick="App.toggleEditMode()">Edit</button>
+            <button class="btn btn-primary hidden" id="mapping-save-btn" onclick="App.saveMapping()">Save</button>
+            <button class="btn btn-secondary hidden" id="mapping-cancel-btn" onclick="App.cancelEditMode()">Cancel</button>
+            <button class="btn btn-outline hidden" id="mapping-add-btn" onclick="App.openAddMappingModal()">Add Mapping</button>
           </div>
         </div>
       </section>
+
+      <!-- Add Mapping Modal -->
+      <div id="add-mapping-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <h3>Add Mapping</h3>
+          <div class="form-group">
+            <label for="modal-automation">Automation</label>
+            <select id="modal-automation"></select>
+          </div>
+          <div class="form-group">
+            <label>Assign to People</label>
+            <div id="modal-people-checks" class="person-checks"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" onclick="App.closeAddMappingModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="App.addMappingFromModal()">Add</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Page: Setup (Wizard) -->
       <section id="page-setup" class="page hidden">

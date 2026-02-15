@@ -26,6 +26,10 @@ function esc(str) {
 const App = (() => {
   let currentPage = "sick-day";
   let durationType = "days";
+  let editMode = false;
+  let currentMapping = {};
+  let editableMapping = {};
+  let discoveryCache = null;
 
   function navigateTo(page) {
     currentPage = page;
@@ -240,10 +244,12 @@ const App = (() => {
     const content = document.getElementById("mapping-content");
     loading.classList.remove("hidden");
     content.classList.add("hidden");
+    editMode = false;
+    updateEditButtons();
 
     try {
-      const mapping = await api("GET", "api/mapping");
-      renderMapping(mapping);
+      currentMapping = await api("GET", "api/mapping");
+      renderMapping(currentMapping, false);
       loading.classList.add("hidden");
       content.classList.remove("hidden");
     } catch (e) {
@@ -252,7 +258,7 @@ const App = (() => {
     }
   }
 
-  function renderMapping(mapping) {
+  function renderMapping(mapping, editable) {
     const container = document.getElementById("mapping-list");
     const personIds = Object.keys(mapping);
 
@@ -266,12 +272,20 @@ const App = (() => {
       const shortName = pid.replace("person.", "").replace(/_/g, " ");
       const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
 
-      const badges = autos.length > 0
-        ? autos.map(a => {
-            const name = a.replace("automation.", "").replace(/_/g, " ");
-            return `<span class="auto-badge">${esc(name)}</span>`;
-          }).join("")
-        : '<span class="auto-badge">no automations</span>';
+      let badges;
+      if (autos.length === 0) {
+        badges = '<span class="auto-badge">no automations</span>';
+      } else if (editable) {
+        badges = autos.map(a => {
+          const name = a.replace("automation.", "").replace(/_/g, " ");
+          return `<span class="auto-badge editable">${esc(name)}<button class="badge-remove" onclick="App.removeMappingBadge('${esc(pid)}','${esc(a)}')" title="Remove">&times;</button></span>`;
+        }).join("");
+      } else {
+        badges = autos.map(a => {
+          const name = a.replace("automation.", "").replace(/_/g, " ");
+          return `<span class="auto-badge">${esc(name)}</span>`;
+        }).join("");
+      }
 
       return `
         <div class="mapping-card">
@@ -280,6 +294,134 @@ const App = (() => {
         </div>
       `;
     }).join("");
+  }
+
+  function updateEditButtons() {
+    const editBtn = document.getElementById("mapping-edit-btn");
+    const saveBtn = document.getElementById("mapping-save-btn");
+    const cancelBtn = document.getElementById("mapping-cancel-btn");
+    const addBtn = document.getElementById("mapping-add-btn");
+    if (!editBtn) return;
+
+    editBtn.classList.toggle("hidden", editMode);
+    saveBtn.classList.toggle("hidden", !editMode);
+    cancelBtn.classList.toggle("hidden", !editMode);
+    addBtn.classList.toggle("hidden", !editMode);
+  }
+
+  function toggleEditMode() {
+    editMode = true;
+    editableMapping = JSON.parse(JSON.stringify(currentMapping));
+    renderMapping(editableMapping, true);
+    updateEditButtons();
+  }
+
+  function cancelEditMode() {
+    editMode = false;
+    renderMapping(currentMapping, false);
+    updateEditButtons();
+  }
+
+  async function saveMapping() {
+    const btn = document.getElementById("mapping-save-btn");
+    btn.disabled = true;
+    btn.textContent = "Saving...";
+
+    try {
+      await api("POST", "api/mapping", editableMapping);
+      currentMapping = editableMapping;
+      editMode = false;
+      renderMapping(currentMapping, false);
+      updateEditButtons();
+    } catch (e) {
+      alert("Failed to save mapping: " + e.message);
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
+  }
+
+  function removeMappingBadge(personId, autoId) {
+    editableMapping[personId] = (editableMapping[personId] || []).filter(a => a !== autoId);
+    renderMapping(editableMapping, true);
+  }
+
+  // --- Add Mapping Modal ---
+
+  async function openAddMappingModal() {
+    const modal = document.getElementById("add-mapping-modal");
+    const autoSelect = document.getElementById("modal-automation");
+    const peopleChecks = document.getElementById("modal-people-checks");
+
+    // Fetch discovery data for the full automation list (cached)
+    if (!discoveryCache) {
+      try {
+        discoveryCache = await api("GET", "api/discovery");
+      } catch (e) {
+        alert("Failed to load automations: " + e.message);
+        return;
+      }
+    }
+
+    // Build automation dropdown — already-mapped ones at the bottom and grayed
+    const allMapped = new Set();
+    for (const autos of Object.values(editableMapping)) {
+      autos.forEach(a => allMapped.add(a));
+    }
+
+    const sorted = [...discoveryCache.automations].sort((a, b) => {
+      const aM = allMapped.has(a.entity_id) ? 1 : 0;
+      const bM = allMapped.has(b.entity_id) ? 1 : 0;
+      if (aM !== bM) return aM - bM;
+      return a.friendly_name.localeCompare(b.friendly_name);
+    });
+
+    autoSelect.innerHTML = sorted.map(a => {
+      const mapped = allMapped.has(a.entity_id);
+      const prefix = mapped ? "(mapped) " : "";
+      return `<option value="${esc(a.entity_id)}" ${mapped ? 'style="color:#999"' : ''}>${esc(prefix + a.friendly_name)}</option>`;
+    }).join("");
+
+    // Build people checkboxes (only people who are keys in the mapping)
+    const personIds = Object.keys(editableMapping);
+    peopleChecks.innerHTML = personIds.map(pid => {
+      const shortName = pid.replace("person.", "").replace(/_/g, " ");
+      const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
+      return `<label class="person-check">
+        <input type="checkbox" value="${esc(pid)}">
+        ${esc(capitalized)}
+      </label>`;
+    }).join("");
+
+    modal.classList.remove("hidden");
+  }
+
+  function closeAddMappingModal() {
+    document.getElementById("add-mapping-modal").classList.add("hidden");
+  }
+
+  function addMappingFromModal() {
+    const autoId = document.getElementById("modal-automation").value;
+    if (!autoId) return;
+
+    const checked = document.querySelectorAll("#modal-people-checks input:checked");
+    if (checked.length === 0) {
+      alert("Select at least one person.");
+      return;
+    }
+
+    checked.forEach(cb => {
+      const pid = cb.value;
+      if (!editableMapping[pid]) editableMapping[pid] = [];
+      if (!editableMapping[pid].includes(autoId)) {
+        editableMapping[pid].push(autoId);
+        editableMapping[pid].sort();
+      }
+    });
+
+    closeAddMappingModal();
+    renderMapping(editableMapping, true);
   }
 
   // --- Boot ---
@@ -299,6 +441,13 @@ const App = (() => {
     showExtendForm,
     extendSickDay,
     loadSickDayPage,
+    toggleEditMode,
+    cancelEditMode,
+    saveMapping,
+    removeMappingBadge,
+    openAddMappingModal,
+    closeAddMappingModal,
+    addMappingFromModal,
   };
 })();
 
@@ -312,6 +461,7 @@ const Wizard = (() => {
   let selectedPeople = [];
   let mapping = {};
   let initialized = false;
+  let existingMapping = null;
 
   // --- Step navigation ---
 
@@ -402,6 +552,19 @@ const Wizard = (() => {
       goToStep(1);
       await runDiscovery();
     }
+
+    // Load existing mapping for pre-population on re-run
+    try {
+      const current = await api("GET", "api/mapping");
+      if (Object.keys(current).length > 0) {
+        existingMapping = current;
+      } else {
+        existingMapping = null;
+      }
+    } catch (e) {
+      existingMapping = null;
+    }
+
     renderPeopleStep();
     goToStep(2);
   }
@@ -413,11 +576,13 @@ const Wizard = (() => {
 
     discoveryData.people.forEach(person => {
       const hasSuggestion = (suggested[person.entity_id] || []).length > 0;
+      const inExisting = existingMapping && existingMapping[person.entity_id] !== undefined;
+      const checked = hasSuggestion || inExisting;
       const item = document.createElement("div");
       item.className = "checkbox-item";
       item.innerHTML = `
         <input type="checkbox" id="person-${person.entity_id}"
-               value="${person.entity_id}" ${hasSuggestion ? "checked" : ""}>
+               value="${person.entity_id}" ${checked ? "checked" : ""}>
         <label for="person-${person.entity_id}">
           ${esc(person.friendly_name)}
           <span class="entity-id">${esc(person.entity_id)}</span>
@@ -530,8 +695,10 @@ const Wizard = (() => {
     const suggested = discoveryData.suggested_mapping || {};
     const matches = [];
     for (const pid of selectedPeople) {
-      const autoIds = suggested[pid] || [];
-      const overlap = area.automation_ids.filter(a => autoIds.includes(a));
+      const suggestedIds = suggested[pid] || [];
+      const existingIds = (existingMapping && existingMapping[pid]) || [];
+      const allIds = [...suggestedIds, ...existingIds];
+      const overlap = area.automation_ids.filter(a => allIds.includes(a));
       if (overlap.length > 0) matches.push(pid);
     }
     return matches;
@@ -541,7 +708,9 @@ const Wizard = (() => {
     const suggested = discoveryData.suggested_mapping || {};
     const matches = [];
     for (const pid of selectedPeople) {
-      if ((suggested[pid] || []).includes(autoId)) matches.push(pid);
+      const inSuggested = (suggested[pid] || []).includes(autoId);
+      const inExisting = existingMapping && (existingMapping[pid] || []).includes(autoId);
+      if (inSuggested || inExisting) matches.push(pid);
     }
     return matches;
   }
@@ -571,6 +740,18 @@ const Wizard = (() => {
         mapping[personId].push(autoId);
       }
     });
+
+    // Merge in automations from existing mapping that weren't covered by discovery areas
+    if (existingMapping) {
+      for (const pid of selectedPeople) {
+        const existing = existingMapping[pid] || [];
+        existing.forEach(aid => {
+          if (!mapping[pid].includes(aid)) {
+            mapping[pid].push(aid);
+          }
+        });
+      }
+    }
 
     for (const pid of selectedPeople) {
       mapping[pid].sort();
@@ -744,6 +925,7 @@ const Wizard = (() => {
       await api("POST", "api/wizard/reset");
       initialized = false;
       discoveryData = null;
+      existingMapping = null;
       await init();
     } catch (e) {
       alert("Failed to reset wizard: " + e.message);
