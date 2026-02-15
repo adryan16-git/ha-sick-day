@@ -25,7 +25,6 @@ Home Assistant add-on ("Sick Day Helper") that manages automations when schedule
 
 Exposed via Home Assistant's WebUI and passed as environment variables:
 - `LOG_LEVEL` — `info` or `debug`
-- `enable_heartbeat` / `ENABLE_HEARTBEAT` — boolean toggle for heartbeat logging
 
 ## Data Files (runtime, in `/config/.sick_day_helper/`)
 

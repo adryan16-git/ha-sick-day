@@ -126,6 +126,91 @@ def classify_automation(entity_id, config_id):
     return result
 
 
+def discover_labels():
+    """Discover HA label registry: {label_id: {name, color}, ...}.
+
+    Tries REST endpoints first, falls back to Jinja2 templates.
+    Returns {} if HA version doesn't support labels.
+    """
+    # Try REST label registry (GET then POST — varies by HA version)
+    for method in ("GET", "POST"):
+        try:
+            result = ha_api._request(method, "/config/label_registry/list")
+            if isinstance(result, dict) and "result" in result:
+                # WS-style response wrapped in {"result": [...]}
+                items = result["result"]
+            elif isinstance(result, list):
+                items = result
+            else:
+                continue
+            labels = {}
+            for item in items:
+                lid = item.get("label_id", "")
+                if lid:
+                    labels[lid] = {
+                        "name": item.get("name", lid),
+                        "color": item.get("color", ""),
+                    }
+            logger.debug("Discovered %d labels via %s registry endpoint", len(labels), method)
+            return labels
+        except Exception:
+            pass
+
+    # Fallback: Jinja2 templates
+    try:
+        ids_raw = ha_api.render_template("{{ labels() | list | tojson }}")
+        label_ids = json.loads(ids_raw)
+        if not label_ids:
+            return {}
+
+        # Batch-resolve names in a single template call
+        ids_json = json.dumps(label_ids)
+        tpl = (
+            "{%- set result = namespace(d={}) -%}"
+            "{%- for lid in " + ids_json + " -%}"
+            "{%- set _ = result.d.update({lid: label_name(lid)}) -%}"
+            "{%- endfor -%}"
+            "{{ result.d | tojson }}"
+        )
+        names_raw = ha_api.render_template(tpl)
+        names = json.loads(names_raw)
+
+        labels = {}
+        for lid in label_ids:
+            labels[lid] = {"name": names.get(lid, lid), "color": ""}
+        logger.debug("Discovered %d labels via Jinja2 fallback", len(labels))
+        return labels
+    except Exception:
+        logger.debug("Label discovery not available (older HA version?)")
+        return {}
+
+
+def discover_automation_labels(automations):
+    """Discover which labels are assigned to each automation.
+
+    Returns {entity_id: [label_id, ...], ...}.
+    """
+    if not automations:
+        return {}
+
+    entity_ids = [a["entity_id"] for a in automations]
+    ids_json = json.dumps(entity_ids)
+
+    try:
+        tpl = (
+            "{%- set result = namespace(d={}) -%}"
+            "{%- for eid in " + ids_json + " -%}"
+            "{%- set _ = result.d.update({eid: labels(eid) | list}) -%}"
+            "{%- endfor -%}"
+            "{{ result.d | tojson }}"
+        )
+        raw = ha_api.render_template(tpl)
+        return json.loads(raw)
+    except Exception:
+        logger.debug("Automation label discovery failed (older HA version?)")
+        return {}
+
+
 def suggest_mapping(people, automations):
     """Auto-suggest person-to-automation mapping based on name matching."""
     mapping = {}
@@ -175,12 +260,17 @@ def get_discovery_summary():
 
     suggested_mapping = suggest_mapping(people, automations)
 
+    label_meta = discover_labels()
+    auto_labels = discover_automation_labels(automations)
+
     return {
         "people": people,
         "automations": automations,
         "areas": areas,
         "unassigned_automations": unassigned_automations,
         "suggested_mapping": suggested_mapping,
+        "labels": label_meta,
+        "automation_labels": auto_labels,
         "counts": {
             "people": len(people),
             "automations": len(automations),

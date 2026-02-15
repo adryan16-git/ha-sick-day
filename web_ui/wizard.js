@@ -19,6 +19,60 @@ function esc(str) {
   return div.innerHTML;
 }
 
+// --- Label utilities ---
+
+function getShowLabels() {
+  const v = localStorage.getItem("sickDayHelper_showLabels");
+  return v === null ? true : v === "true";
+}
+
+function setShowLabels(val) {
+  localStorage.setItem("sickDayHelper_showLabels", String(!!val));
+}
+
+function hashLabelColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash) + name.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = ((hash % 360) + 360) % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
+
+function getLabelColor(labelId, labelMeta) {
+  const meta = labelMeta[labelId];
+  if (meta && meta.color) {
+    const opt = document.createElement("option");
+    opt.style.color = meta.color;
+    if (opt.style.color) return meta.color;
+  }
+  const name = (meta && meta.name) || labelId;
+  return hashLabelColor(name);
+}
+
+function renderLabelBadges(entityId, source) {
+  if (!getShowLabels()) return "";
+  if (!source || !source.labels || !source.automation_labels) return "";
+  const labelIds = source.automation_labels[entityId];
+  if (!labelIds || labelIds.length === 0) return "";
+  return labelIds.map(lid => {
+    const meta = source.labels[lid];
+    const name = (meta && meta.name) || lid;
+    const color = getLabelColor(lid, source.labels);
+    return `<span class="badge badge-label" style="background:${color}">${esc(name)}</span>`;
+  }).join("");
+}
+
+function hasAnyLabels(source) {
+  if (!source || !source.automation_labels) return false;
+  return Object.values(source.automation_labels).some(ids => ids.length > 0);
+}
+
+function labelToggleHtml(checked, onchangeExpr) {
+  return `<div class="label-toggle"><label class="toggle-label"><input type="checkbox" ${checked ? "checked" : ""} onchange="${onchangeExpr}">&nbsp;Show labels</label></div>`;
+}
+
 // ============================================================
 // App — Page Router + Sick Day + Mapping
 // ============================================================
@@ -248,7 +302,11 @@ const App = (() => {
     updateEditButtons();
 
     try {
-      currentMapping = await api("GET", "api/mapping");
+      const fetches = [api("GET", "api/mapping")];
+      if (!discoveryCache) fetches.push(api("GET", "api/discovery"));
+      const results = await Promise.all(fetches);
+      currentMapping = results[0];
+      if (results[1]) discoveryCache = results[1];
       renderMapping(currentMapping, false);
       loading.classList.add("hidden");
       content.classList.remove("hidden");
@@ -267,7 +325,12 @@ const App = (() => {
       return;
     }
 
-    container.innerHTML = personIds.map(pid => {
+    let html = "";
+    if (hasAnyLabels(discoveryCache)) {
+      html += labelToggleHtml(getShowLabels(), "App.toggleLabels(this.checked)");
+    }
+
+    html += personIds.map(pid => {
       const autos = mapping[pid] || [];
       const shortName = pid.replace("person.", "").replace(/_/g, " ");
       const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
@@ -278,12 +341,14 @@ const App = (() => {
       } else if (editable) {
         badges = autos.map(a => {
           const name = a.replace("automation.", "").replace(/_/g, " ");
-          return `<span class="auto-badge editable">${esc(name)}<button class="badge-remove" onclick="App.removeMappingBadge('${esc(pid)}','${esc(a)}')" title="Remove">&times;</button></span>`;
+          const lbls = renderLabelBadges(a, discoveryCache);
+          return `<span class="auto-badge editable">${esc(name)}${lbls}<button class="badge-remove" onclick="App.removeMappingBadge('${esc(pid)}','${esc(a)}')" title="Remove">&times;</button></span>`;
         }).join("");
       } else {
         badges = autos.map(a => {
           const name = a.replace("automation.", "").replace(/_/g, " ");
-          return `<span class="auto-badge">${esc(name)}</span>`;
+          const lbls = renderLabelBadges(a, discoveryCache);
+          return `<span class="auto-badge">${esc(name)}${lbls}</span>`;
         }).join("");
       }
 
@@ -294,6 +359,13 @@ const App = (() => {
         </div>
       `;
     }).join("");
+
+    container.innerHTML = html;
+  }
+
+  function toggleLabels(checked) {
+    setShowLabels(checked);
+    renderMapping(editMode ? editableMapping : currentMapping, editMode);
   }
 
   function updateEditButtons() {
@@ -445,6 +517,7 @@ const App = (() => {
     cancelEditMode,
     saveMapping,
     removeMappingBadge,
+    toggleLabels,
     openAddMappingModal,
     closeAddMappingModal,
     addMappingFromModal,
@@ -612,6 +685,12 @@ const Wizard = (() => {
   function renderAreasStep() {
     const container = document.getElementById("areas-list");
     container.innerHTML = "";
+
+    if (hasAnyLabels(discoveryData)) {
+      const toggle = document.createElement("div");
+      toggle.innerHTML = labelToggleHtml(getShowLabels(), "Wizard.toggleLabels(this.checked)");
+      container.appendChild(toggle.firstElementChild);
+    }
 
     discoveryData.areas.forEach(area => {
       if (area.automation_ids.length === 0) return;
@@ -940,7 +1019,14 @@ const Wizard = (() => {
     let b = "";
     if (auto.classification.time_triggered) b += '<span class="badge badge-time">time</span>';
     if (auto.classification.day_filtered) b += '<span class="badge badge-day">day</span>';
+    if (auto) b += renderLabelBadges(auto.entity_id, discoveryData);
     return b;
+  }
+
+  function toggleLabels(checked) {
+    setShowLabels(checked);
+    renderAreasStep();
+    if (currentStep === 4) renderReviewStep();
   }
 
   return {
@@ -954,5 +1040,6 @@ const Wizard = (() => {
     addAutomation,
     skipToAutoMapping,
     resetWizard,
+    toggleLabels,
   };
 })();
