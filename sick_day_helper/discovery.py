@@ -44,6 +44,7 @@ def discover_automations():
                 "friendly_name": attrs.get("friendly_name", s["entity_id"]),
                 "config_id": attrs.get("id", ""),
                 "state": s.get("state", "unknown"),
+                "last_updated": s.get("last_updated", ""),
             })
     return sorted(automations, key=lambda a: a["entity_id"])
 

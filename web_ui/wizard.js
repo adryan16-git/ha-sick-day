@@ -446,6 +446,10 @@ const App = (() => {
       const aM = allMapped.has(a.entity_id) ? 1 : 0;
       const bM = allMapped.has(b.entity_id) ? 1 : 0;
       if (aM !== bM) return aM - bM;
+      // Within each group, sort by last_updated descending (newest first)
+      const aT = a.last_updated || "";
+      const bT = b.last_updated || "";
+      if (aT !== bT) return bT.localeCompare(aT);
       return a.friendly_name.localeCompare(b.friendly_name);
     });
 
@@ -466,7 +470,21 @@ const App = (() => {
       </label>`;
     }).join("");
 
+    // When automation selection changes, pre-check people who already have it mapped
+    autoSelect.onchange = () => updateModalPeopleChecks(autoSelect.value);
+    // Fire for the initially selected automation
+    updateModalPeopleChecks(autoSelect.value);
+
     modal.classList.remove("hidden");
+  }
+
+  function updateModalPeopleChecks(autoId) {
+    const checkboxes = document.querySelectorAll("#modal-people-checks input[type=checkbox]");
+    checkboxes.forEach(cb => {
+      const pid = cb.value;
+      const mappedAutos = editableMapping[pid] || [];
+      cb.checked = mappedAutos.includes(autoId);
+    });
   }
 
   function closeAddMappingModal() {
