@@ -1,6 +1,6 @@
 {
   "name": "Sick Day Helper",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "slug": "sick_day",
   "description": "Manage sick days for household members — automatically disable schedule-based automations and get notified when they expire",
   "arch": ["amd64", "aarch64", "armv7", "armhf"],

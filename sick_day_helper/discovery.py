@@ -3,10 +3,15 @@
 import json
 import logging
 import re
+import time
 
 from sick_day_helper import ha_api
 
 logger = logging.getLogger(__name__)
+
+# Module-level cache for discovery summary
+_discovery_cache = {"result": None, "timestamp": 0}
+_CACHE_TTL = 60  # seconds
 
 
 def _extract_name_tokens(entity_id):
@@ -19,9 +24,10 @@ def _extract_name_tokens(entity_id):
     return tokens
 
 
-def discover_people():
+def discover_people(all_states=None):
     """Return list of person entities: [{entity_id, friendly_name}, ...]."""
-    all_states = ha_api.get_states()
+    if all_states is None:
+        all_states = ha_api.get_states()
     people = []
     for s in all_states:
         if s["entity_id"].startswith("person."):
@@ -32,9 +38,10 @@ def discover_people():
     return sorted(people, key=lambda p: p["entity_id"])
 
 
-def discover_automations():
+def discover_automations(all_states=None):
     """Return all automation entities with friendly names and config IDs."""
-    all_states = ha_api.get_states()
+    if all_states is None:
+        all_states = ha_api.get_states()
     automations = []
     for s in all_states:
         if s["entity_id"].startswith("automation."):
@@ -57,20 +64,38 @@ def discover_areas():
         area_ids_raw = ha_api.render_template("{{ areas() | list | tojson }}")
         area_ids = json.loads(area_ids_raw)
 
-        for area_id in area_ids:
-            # Get area name
-            name = ha_api.render_template(f"{{{{ area_name('{area_id}') }}}}")
-            # Get entities in this area
-            entities_raw = ha_api.render_template(
-                f"{{{{ area_entities('{area_id}') | list | tojson }}}}"
-            )
-            entity_ids = json.loads(entities_raw)
-            # Filter to automations only
-            automation_ids = [e for e in entity_ids if e.startswith("automation.")]
+        if not area_ids:
+            return areas
 
+        # Batch: get all area names in one template call
+        ids_json = json.dumps(area_ids)
+        names_tpl = (
+            "{%- set result = namespace(d={}) -%}"
+            "{%- for aid in " + ids_json + " -%}"
+            "{%- set _ = result.d.update({aid: area_name(aid)}) -%}"
+            "{%- endfor -%}"
+            "{{ result.d | tojson }}"
+        )
+        names_raw = ha_api.render_template(names_tpl)
+        area_names = json.loads(names_raw)
+
+        # Batch: get all area entities in one template call
+        entities_tpl = (
+            "{%- set result = namespace(d={}) -%}"
+            "{%- for aid in " + ids_json + " -%}"
+            "{%- set _ = result.d.update({aid: area_entities(aid) | list}) -%}"
+            "{%- endfor -%}"
+            "{{ result.d | tojson }}"
+        )
+        entities_raw = ha_api.render_template(entities_tpl)
+        area_entities = json.loads(entities_raw)
+
+        for area_id in area_ids:
+            entity_ids = area_entities.get(area_id, [])
+            automation_ids = [e for e in entity_ids if e.startswith("automation.")]
             areas.append({
                 "area_id": area_id,
-                "name": name.strip(),
+                "name": area_names.get(area_id, area_id).strip(),
                 "automation_ids": automation_ids,
             })
     except Exception:
@@ -232,11 +257,30 @@ def suggest_mapping(people, automations):
 
 def get_discovery_summary():
     """Aggregate discovery data for the wizard welcome step."""
-    people = discover_people()
-    automations = discover_automations()
+    # Check cache
+    now = time.time()
+    if _discovery_cache["result"] is not None and (now - _discovery_cache["timestamp"]) < _CACHE_TTL:
+        logger.info("Returning cached discovery summary (age: %.1fs)", now - _discovery_cache["timestamp"])
+        return _discovery_cache["result"]
+
+    total_start = time.time()
+
+    # Fetch all states once and share
+    t0 = time.time()
+    all_states = ha_api.get_states()
+    logger.info("Discovery: get_states took %.2fs (%d entities)", time.time() - t0, len(all_states))
+
+    t0 = time.time()
+    people = discover_people(all_states)
+    automations = discover_automations(all_states)
+    logger.info("Discovery: filter people/automations took %.2fs", time.time() - t0)
+
+    t0 = time.time()
     areas = discover_areas()
+    logger.info("Discovery: areas took %.2fs (%d areas)", time.time() - t0, len(areas))
 
     # Classify automations
+    t0 = time.time()
     time_triggered_count = 0
     day_filtered_count = 0
     automation_details = {}
@@ -248,6 +292,7 @@ def get_discovery_summary():
             time_triggered_count += 1
         if classification["day_filtered"]:
             day_filtered_count += 1
+    logger.info("Discovery: classify automations took %.2fs (%d automations)", time.time() - t0, len(automations))
 
     # Build area-to-automation mapping
     area_automation_ids = set()
@@ -261,10 +306,15 @@ def get_discovery_summary():
 
     suggested_mapping = suggest_mapping(people, automations)
 
+    t0 = time.time()
     label_meta = discover_labels()
     auto_labels = discover_automation_labels(automations)
+    logger.info("Discovery: labels took %.2fs", time.time() - t0)
 
-    return {
+    total_elapsed = time.time() - total_start
+    logger.info("Discovery: total took %.2fs", total_elapsed)
+
+    result = {
         "people": people,
         "automations": automations,
         "areas": areas,
@@ -280,3 +330,9 @@ def get_discovery_summary():
             "day_filtered": day_filtered_count,
         },
     }
+
+    # Update cache
+    _discovery_cache["result"] = result
+    _discovery_cache["timestamp"] = time.time()
+
+    return result
