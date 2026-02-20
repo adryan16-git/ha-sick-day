@@ -69,6 +69,8 @@ def activate_sick_day(person_display_name, end_date_str):
 
     # Only disable automations that are currently enabled
     actually_disabled = []
+    skipped = []  # (auto_id, reason)
+    failed = []   # (auto_id,)
     for auto_id in automations:
         try:
             state = ha_api.get_state_value(auto_id)
@@ -77,9 +79,17 @@ def activate_sick_day(person_display_name, end_date_str):
                 actually_disabled.append(auto_id)
                 logger.info("Disabled automation: %s", auto_id)
             else:
-                logger.debug("Skipping %s (already %s)", auto_id, state)
+                skipped.append((auto_id, state))
+                logger.info("Skipped %s (state: %s)", auto_id, state)
         except Exception:
+            failed.append(auto_id)
             logger.exception("Failed to disable %s", auto_id)
+
+    if skipped or failed:
+        logger.info(
+            "Activation summary for %s: %d mapped, %d disabled, %d skipped, %d failed",
+            person_id, len(automations), len(actually_disabled), len(skipped), len(failed),
+        )
 
     # Record state — only automations we actually turned off
     config_manager.set_person_state(person_id, end_date_str, actually_disabled)
@@ -87,27 +97,38 @@ def activate_sick_day(person_display_name, end_date_str):
     # Update active indicator
     ha_api.turn_on(ENTITY_ACTIVE)
 
-    # Send confirmation — use friendly names for automations
-    auto_names = []
-    for a in actually_disabled:
+    # Build confirmation notification with full breakdown
+    def _friendly(entity_id):
         try:
-            st = ha_api.get_state(a)
-            friendly = st.get("attributes", {}).get("friendly_name", a) if st else a
+            st = ha_api.get_state(entity_id)
+            return st.get("attributes", {}).get("friendly_name", entity_id) if st else entity_id
         except Exception:
-            friendly = a
-        auto_names.append(f"- {friendly}")
-    auto_list = "\n".join(auto_names) if auto_names else "_(none)_"
+            return entity_id
+
+    disabled_lines = [f"- {_friendly(a)}" for a in actually_disabled]
+    msg_parts = [f"Sick day activated for **{person_display_name}** until **{end_date_str}**."]
+
+    msg_parts.append(f"\nDisabled automations ({len(actually_disabled)}):")
+    msg_parts.append("\n".join(disabled_lines) if disabled_lines else "_(none)_")
+
+    if skipped:
+        skipped_lines = [f"- {_friendly(a)} _(was {reason})_" for a, reason in skipped]
+        msg_parts.append(f"\nSkipped ({len(skipped)}):")
+        msg_parts.append("\n".join(skipped_lines))
+
+    if failed:
+        failed_lines = [f"- {_friendly(a)}" for a in failed]
+        msg_parts.append(f"\nFailed ({len(failed)}):")
+        msg_parts.append("\n".join(failed_lines))
+
     ha_api.send_persistent_notification(
         title="Sick Day Helper — Activated",
-        message=(
-            f"Sick day activated for **{person_display_name}** until **{end_date_str}**.\n\n"
-            f"Disabled automations:\n{auto_list}"
-        ),
+        message="\n".join(msg_parts),
         notification_id=NOTIFICATION_CONFIRMATION,
     )
 
-    logger.info("Sick day activated for %s until %s (%d automations disabled)",
-                person_id, end_date_str, len(actually_disabled))
+    logger.info("Sick day activated for %s until %s (%d disabled, %d skipped, %d failed)",
+                person_id, end_date_str, len(actually_disabled), len(skipped), len(failed))
     return True
 
 
