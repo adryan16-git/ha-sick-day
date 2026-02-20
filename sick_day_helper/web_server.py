@@ -192,11 +192,20 @@ class WizardHandler(BaseHTTPRequestHandler):
                     name = st.get("attributes", {}).get("friendly_name", person_id) if st else person_id
                 except Exception:
                     name = person_id
+                auto_ids = entry.get("disabled_automations", [])
+                auto_list = []
+                for aid in auto_ids:
+                    try:
+                        ast = ha_api.get_state(aid)
+                        aname = ast.get("attributes", {}).get("friendly_name", aid) if ast else aid
+                    except Exception:
+                        aname = aid
+                    auto_list.append({"entity_id": aid, "friendly_name": aname})
                 result.append({
                     "person_id": person_id,
                     "person_name": name,
                     "end_date": entry.get("end_date"),
-                    "disabled_automations": entry.get("disabled_automations", []),
+                    "disabled_automations": auto_list,
                 })
             self._send_json(result)
         except Exception as e:

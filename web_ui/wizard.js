@@ -146,8 +146,8 @@ const App = (() => {
 
     container.innerHTML = sickDays.map(sd => {
       const autoBadges = sd.disabled_automations.map(a => {
-        const shortName = a.replace("automation.", "").replace(/_/g, " ");
-        return `<span class="auto-badge">${esc(shortName)}</span>`;
+        const name = typeof a === "object" ? a.friendly_name : a.replace("automation.", "").replace(/_/g, " ");
+        return `<span class="auto-badge">${esc(name)}</span>`;
       }).join("");
 
       return `
