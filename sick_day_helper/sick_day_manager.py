@@ -87,8 +87,16 @@ def activate_sick_day(person_display_name, end_date_str):
     # Update active indicator
     ha_api.turn_on(ENTITY_ACTIVE)
 
-    # Send confirmation
-    auto_list = "\n".join(f"- `{a}`" for a in actually_disabled) if actually_disabled else "_(none)_"
+    # Send confirmation — use friendly names for automations
+    auto_names = []
+    for a in actually_disabled:
+        try:
+            st = ha_api.get_state(a)
+            friendly = st.get("attributes", {}).get("friendly_name", a) if st else a
+        except Exception:
+            friendly = a
+        auto_names.append(f"- {friendly}")
+    auto_list = "\n".join(auto_names) if auto_names else "_(none)_"
     ha_api.send_persistent_notification(
         title="Sick Day Helper — Activated",
         message=(
