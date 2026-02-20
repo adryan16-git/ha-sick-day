@@ -456,7 +456,7 @@ const App = (() => {
     autoSelect.innerHTML = sorted.map(a => {
       const mapped = allMapped.has(a.entity_id);
       const prefix = mapped ? "(mapped) " : "";
-      return `<option value="${esc(a.entity_id)}" ${mapped ? 'style="color:#999"' : ''}>${esc(prefix + a.friendly_name)}</option>`;
+      return `<option value="${esc(a.entity_id)}" ${mapped ? 'style="color:var(--text-secondary)"' : ''}>${esc(prefix + a.friendly_name)}</option>`;
     }).join("");
 
     // Build people checkboxes (only people who are keys in the mapping)

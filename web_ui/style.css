@@ -863,6 +863,61 @@ body {
   margin-top: 4px;
 }
 
+/* Dark mode (system preference) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary: #39b4f6;
+    --primary-dark: #0299e8;
+    --accent: #ffb74d;
+    --bg: #1a1a1a;
+    --card-bg: #2a2a2a;
+    --text: #e0e0e0;
+    --text-secondary: #9e9e9e;
+    --border: #444;
+    --success: #66bb6a;
+    --danger: #ef5350;
+    --badge-time: #42a5f5;
+    --badge-day: #ffa726;
+    --step-inactive: #555;
+    --step-active: #39b4f6;
+    --step-done: #66bb6a;
+    --sidebar-bg: #1e1e1e;
+    --sidebar-text: #cfd8dc;
+    --sidebar-hover: #333;
+    --sidebar-active: #39b4f6;
+  }
+
+  .btn-secondary:hover {
+    background: #555;
+  }
+
+  .btn-danger:hover {
+    background: #d32f2f;
+  }
+
+  .info-box {
+    background: #1a3a4a;
+  }
+
+  .person-check:has(input:checked) {
+    background: #1a3a4a;
+  }
+
+  .modal-overlay {
+    background: rgba(0, 0, 0, 0.7);
+  }
+
+  .form-group select,
+  .form-group input[type="date"],
+  .modal-card select,
+  .extend-form input,
+  .inline-form select,
+  .area-card select {
+    color: var(--text);
+    background: var(--card-bg);
+  }
+}
+
 /* Responsive */
 @media (max-width: 700px) {
   #app {
