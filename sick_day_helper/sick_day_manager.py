@@ -67,8 +67,18 @@ def activate_sick_day(person_display_name, end_date_str):
         )
         return False
 
+    # Build lookup of automations already disabled by other active sick days
+    active_state = config_manager.load_state()
+    already_disabled_by = {}  # auto_id -> person_id that has it disabled
+    for other_pid, other_entry in active_state.items():
+        if other_pid == person_id:
+            continue
+        for auto_id in other_entry.get("disabled_automations", []):
+            already_disabled_by[auto_id] = other_pid
+
     # Only disable automations that are currently enabled
     actually_disabled = []
+    shared = []   # (auto_id, other_person_id)
     skipped = []  # (auto_id, reason)
     failed = []   # (auto_id,)
     for auto_id in automations:
@@ -78,6 +88,9 @@ def activate_sick_day(person_display_name, end_date_str):
                 ha_api.turn_off(auto_id)
                 actually_disabled.append(auto_id)
                 logger.info("Disabled automation: %s", auto_id)
+            elif auto_id in already_disabled_by:
+                shared.append((auto_id, already_disabled_by[auto_id]))
+                logger.info("Shared automation %s (already off via %s)", auto_id, already_disabled_by[auto_id])
             else:
                 skipped.append((auto_id, state))
                 logger.info("Skipped %s (state: %s)", auto_id, state)
@@ -85,10 +98,10 @@ def activate_sick_day(person_display_name, end_date_str):
             failed.append(auto_id)
             logger.exception("Failed to disable %s", auto_id)
 
-    if skipped or failed:
+    if skipped or failed or shared:
         logger.info(
-            "Activation summary for %s: %d mapped, %d disabled, %d skipped, %d failed",
-            person_id, len(automations), len(actually_disabled), len(skipped), len(failed),
+            "Activation summary for %s: %d mapped, %d disabled, %d shared, %d skipped, %d failed",
+            person_id, len(automations), len(actually_disabled), len(shared), len(skipped), len(failed),
         )
 
     # Record state — only automations we actually turned off
@@ -110,6 +123,14 @@ def activate_sick_day(person_display_name, end_date_str):
 
     msg_parts.append(f"\nDisabled automations ({len(actually_disabled)}):")
     msg_parts.append("\n".join(disabled_lines) if disabled_lines else "_(none)_")
+
+    if shared:
+        shared_lines = []
+        for a, other_pid in shared:
+            other_name = _friendly(other_pid)
+            shared_lines.append(f"- {_friendly(a)} _(shared with {other_name})_")
+        msg_parts.append(f"\nAlready paused ({len(shared)}):")
+        msg_parts.append("\n".join(shared_lines))
 
     if skipped:
         skipped_lines = [f"- {_friendly(a)} _(was {reason})_" for a, reason in skipped]
