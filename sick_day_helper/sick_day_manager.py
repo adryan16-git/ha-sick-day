@@ -202,10 +202,7 @@ def extend_sick_day(person_display_name, new_end_date_str):
 
 
 def check_expirations():
-    """Check for expired sick days and send notifications.
-
-    Does NOT auto-re-enable — sends a persistent notification instead.
-    """
+    """Check for expired sick days, auto-re-enable automations, and notify."""
     state = config_manager.load_state()
     today = date.today().isoformat()
     expired = []
@@ -217,7 +214,7 @@ def check_expirations():
     if not expired:
         return
 
-    lines = ["The following sick day(s) have expired:\n"]
+    lines = ["The following sick day(s) have expired and automations have been re-enabled:\n"]
     for person_id in expired:
         try:
             st = ha_api.get_state(person_id)
@@ -226,12 +223,31 @@ def check_expirations():
             name = person_id
 
         entry = state[person_id]
-        lines.append(f"- **{name}** (ended {entry['end_date']})")
+        disabled_by_this = set(entry.get("disabled_automations", []))
 
-    lines.append(
-        "\nTo re-enable automations, toggle **Sick Day - Cancel** in your dashboard."
-        "\nTo extend, set a new duration and toggle **Sick Day - Extend**."
-    )
+        # Remove this person's state so shared-automation check excludes them
+        config_manager.remove_person_state(person_id)
+
+        # Only re-enable automations not still needed by another active sick day
+        still_needed = config_manager.get_all_currently_disabled()
+        to_reenable = disabled_by_this - still_needed
+        kept_off = disabled_by_this & still_needed
+
+        for auto_id in to_reenable:
+            try:
+                ha_api.turn_on(auto_id)
+                logger.info("Re-enabled automation (expired): %s", auto_id)
+            except Exception:
+                logger.exception("Failed to re-enable %s", auto_id)
+
+        lines.append(f"- **{name}** (ended {entry['end_date']}) — {len(to_reenable)} automation(s) re-enabled")
+        if kept_off:
+            lines.append(f"  - {len(kept_off)} automation(s) kept off (still needed by another sick day)")
+            logger.info("Kept %d automation(s) off for %s (shared): %s", len(kept_off), person_id, kept_off)
+
+    # Update active indicator
+    if not config_manager.has_active_sick_days():
+        ha_api.turn_off(ENTITY_ACTIVE)
 
     ha_api.send_persistent_notification(
         title="Sick Day Helper — Expired",
@@ -239,7 +255,7 @@ def check_expirations():
         notification_id=NOTIFICATION_EXPIRATION,
     )
 
-    logger.info("Expiration notification sent for: %s", expired)
+    logger.info("Expired sick days auto-deactivated: %s", expired)
 
 
 def verify_state_on_startup():
