@@ -73,6 +73,29 @@ function labelToggleHtml(checked, onchangeExpr) {
   return `<div class="label-toggle"><label class="toggle-label"><input type="checkbox" ${checked ? "checked" : ""} onchange="${onchangeExpr}">&nbsp;Show labels</label></div>`;
 }
 
+// --- Entity state utilities ---
+
+function getEntityStatesEnabled() {
+  return localStorage.getItem("sickDayHelper_entityStates") === "true";
+}
+
+function setEntityStatesEnabled(val) {
+  localStorage.setItem("sickDayHelper_entityStates", String(!!val));
+}
+
+function entityStateToggleHtml(checked) {
+  return `<div class="label-toggle" style="margin-top:4px"><label class="toggle-label"><input type="checkbox" ${checked ? "checked" : ""} onchange="App.toggleEntityStates(this.checked)">&nbsp;Show entity states</label></div>`;
+}
+
+function getEntityFriendlyName(entityId, entityCache) {
+  if (entityCache) {
+    const e = entityCache.find(x => x.entity_id === entityId);
+    if (e) return e.friendly_name;
+  }
+  const namePart = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+  return namePart.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // ============================================================
 // App — Page Router + Sick Day + Mapping
 // ============================================================
@@ -84,6 +107,8 @@ const App = (() => {
   let currentMapping = {};
   let editableMapping = {};
   let discoveryCache = null;
+  let entityStatesCache = null;   // cached result of /api/discovery/entities
+  let entityStateTarget = "on";   // current target for entity state modal
 
   function navigateTo(page) {
     currentPage = page;
@@ -138,6 +163,7 @@ const App = (() => {
 
   function renderActiveSickDays(sickDays) {
     const container = document.getElementById("active-list");
+    const showEntityStates = getEntityStatesEnabled();
 
     if (sickDays.length === 0) {
       container.innerHTML = '<p class="no-active">No active sick days.</p>';
@@ -150,6 +176,15 @@ const App = (() => {
         return `<span class="auto-badge">${esc(name)}</span>`;
       }).join("");
 
+      let entityOverridesHtml = "";
+      if (showEntityStates && sd.entity_state_overrides && sd.entity_state_overrides.length > 0) {
+        const badges = sd.entity_state_overrides.map(ov => {
+          const dot = `<span class="state-dot ${ov.target_state || ""}"></span>`;
+          return `<span class="entity-state-badge">${dot}${esc(ov.friendly_name || ov.entity_id)} → ${esc(ov.target_state || "?")}</span>`;
+        }).join("");
+        entityOverridesHtml = `<div class="sick-card-entity-overrides">${badges}</div>`;
+      }
+
       return `
         <div class="sick-card" data-person-id="${esc(sd.person_id)}">
           <div class="sick-card-header">
@@ -157,6 +192,7 @@ const App = (() => {
             <span class="end-date">Until ${esc(sd.end_date)}</span>
           </div>
           <div class="sick-card-autos">${autoBadges || '<span class="auto-badge">no automations recorded</span>'}</div>
+          ${entityOverridesHtml}
           <div class="sick-card-actions">
             <button class="btn btn-small" onclick="App.showExtendForm('${esc(sd.person_id)}')">Extend</button>
             <button class="btn btn-small btn-danger" onclick="App.cancelSickDay('${esc(sd.person_id)}')">Cancel</button>
@@ -199,9 +235,7 @@ const App = (() => {
 
     document.getElementById("declare-submit").disabled = false;
 
-    // Build options — resolve friendly names from active sick day data or use entity ID
     personSelect.innerHTML = available.map(pid => {
-      // Try to find a friendly name
       const shortName = pid.replace("person.", "").replace(/_/g, " ");
       const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
       return `<option value="${esc(pid)}">${esc(capitalized)}</option>`;
@@ -246,7 +280,6 @@ const App = (() => {
         duration_value: durationValue,
       });
 
-      // Reload the page
       await loadSickDayPage();
     } catch (e) {
       alert("Failed to declare sick day: " + e.message);
@@ -258,7 +291,7 @@ const App = (() => {
   }
 
   async function cancelSickDay(personId) {
-    if (!confirm("Cancel sick day? Automations will be re-enabled.")) return;
+    if (!confirm("Cancel sick day? Automations will be re-enabled and entity states restored.")) return;
 
     try {
       await api("POST", "api/sick-days/cancel", { person_id: personId });
@@ -319,6 +352,7 @@ const App = (() => {
   function renderMapping(mapping, editable) {
     const container = document.getElementById("mapping-list");
     const personIds = Object.keys(mapping);
+    const showEntityStates = getEntityStatesEnabled();
 
     if (personIds.length === 0) {
       container.innerHTML = '<p class="mapping-empty">No mapping configured. Go to Setup to create one.</p>';
@@ -326,36 +360,72 @@ const App = (() => {
     }
 
     let html = "";
+
+    // Toggles row
+    let togglesHtml = "";
     if (hasAnyLabels(discoveryCache)) {
-      html += labelToggleHtml(getShowLabels(), "App.toggleLabels(this.checked)");
+      togglesHtml += labelToggleHtml(getShowLabels(), "App.toggleLabels(this.checked)");
     }
+    togglesHtml += entityStateToggleHtml(showEntityStates);
+    if (togglesHtml) html += `<div style="margin-bottom:12px">${togglesHtml}</div>`;
 
     html += personIds.map(pid => {
-      const autos = mapping[pid] || [];
+      const entry = mapping[pid] || {};
+      const autos = entry.automations || [];
+      const entityStates = entry.entity_states || [];
+
       const shortName = pid.replace("person.", "").replace(/_/g, " ");
       const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
 
-      let badges;
+      // Automations section
+      let autoBadges;
       if (autos.length === 0) {
-        badges = '<span class="auto-badge">no automations</span>';
+        autoBadges = '<span class="auto-badge">no automations</span>';
       } else if (editable) {
-        badges = autos.map(a => {
+        autoBadges = autos.map(a => {
           const name = a.replace("automation.", "").replace(/_/g, " ");
           const lbls = renderLabelBadges(a, discoveryCache);
           return `<span class="auto-badge editable">${esc(name)}${lbls}<button class="badge-remove" onclick="App.removeMappingBadge('${esc(pid)}','${esc(a)}')" title="Remove">&times;</button></span>`;
         }).join("");
       } else {
-        badges = autos.map(a => {
+        autoBadges = autos.map(a => {
           const name = a.replace("automation.", "").replace(/_/g, " ");
           const lbls = renderLabelBadges(a, discoveryCache);
           return `<span class="auto-badge">${esc(name)}${lbls}</span>`;
         }).join("");
       }
 
+      // Entity states section (only when enabled)
+      let entityStateSection = "";
+      if (showEntityStates) {
+        let entityBadges;
+        if (entityStates.length === 0) {
+          entityBadges = `<span class="auto-badge" style="opacity:0.5">${editable ? 'none — use "Add Entity State" to add' : 'none'}</span>`;
+        } else if (editable) {
+          entityBadges = entityStates.map(es => {
+            const name = getEntityFriendlyName(es.entity_id, entityStatesCache);
+            const dot = `<span class="state-dot ${es.state}"></span>`;
+            return `<span class="entity-state-badge editable">${dot}${esc(name)} → ${esc(es.state)}<button class="badge-remove" onclick="App.removeEntityState('${esc(pid)}','${esc(es.entity_id)}')" title="Remove">&times;</button></span>`;
+          }).join("");
+        } else {
+          entityBadges = entityStates.map(es => {
+            const name = getEntityFriendlyName(es.entity_id, entityStatesCache);
+            const dot = `<span class="state-dot ${es.state}"></span>`;
+            return `<span class="entity-state-badge">${dot}${esc(name)} → ${esc(es.state)}</span>`;
+          }).join("");
+        }
+        entityStateSection = `
+          <div class="mapping-subsection">
+            <div class="mapping-subsection-label">Entity States</div>
+            <div class="auto-badges">${entityBadges}</div>
+          </div>`;
+      }
+
       return `
         <div class="mapping-card">
           <h4>${esc(capitalized)}</h4>
-          <div class="auto-badges">${badges}</div>
+          <div class="auto-badges">${autoBadges}</div>
+          ${entityStateSection}
         </div>
       `;
     }).join("");
@@ -368,17 +438,25 @@ const App = (() => {
     renderMapping(editMode ? editableMapping : currentMapping, editMode);
   }
 
+  function toggleEntityStates(checked) {
+    setEntityStatesEnabled(checked);
+    updateEditButtons();
+    renderMapping(editMode ? editableMapping : currentMapping, editMode);
+  }
+
   function updateEditButtons() {
     const editBtn = document.getElementById("mapping-edit-btn");
     const saveBtn = document.getElementById("mapping-save-btn");
     const cancelBtn = document.getElementById("mapping-cancel-btn");
     const addBtn = document.getElementById("mapping-add-btn");
+    const addEntityBtn = document.getElementById("mapping-add-entity-btn");
     if (!editBtn) return;
 
     editBtn.classList.toggle("hidden", editMode);
     saveBtn.classList.toggle("hidden", !editMode);
     cancelBtn.classList.toggle("hidden", !editMode);
     addBtn.classList.toggle("hidden", !editMode);
+    if (addEntityBtn) addEntityBtn.classList.toggle("hidden", !editMode || !getEntityStatesEnabled());
   }
 
   function toggleEditMode() {
@@ -415,18 +493,26 @@ const App = (() => {
   }
 
   function removeMappingBadge(personId, autoId) {
-    editableMapping[personId] = (editableMapping[personId] || []).filter(a => a !== autoId);
+    const entry = editableMapping[personId] || { automations: [], entity_states: [] };
+    entry.automations = (entry.automations || []).filter(a => a !== autoId);
+    editableMapping[personId] = entry;
     renderMapping(editableMapping, true);
   }
 
-  // --- Add Mapping Modal ---
+  function removeEntityState(personId, entityId) {
+    const entry = editableMapping[personId] || { automations: [], entity_states: [] };
+    entry.entity_states = (entry.entity_states || []).filter(es => es.entity_id !== entityId);
+    editableMapping[personId] = entry;
+    renderMapping(editableMapping, true);
+  }
+
+  // --- Add Automation Mapping Modal ---
 
   async function openAddMappingModal() {
     const modal = document.getElementById("add-mapping-modal");
     const autoSelect = document.getElementById("modal-automation");
     const peopleChecks = document.getElementById("modal-people-checks");
 
-    // Fetch discovery data for the full automation list (cached)
     if (!discoveryCache) {
       try {
         discoveryCache = await api("GET", "api/discovery");
@@ -438,15 +524,14 @@ const App = (() => {
 
     // Build automation dropdown — already-mapped ones at the bottom and grayed
     const allMapped = new Set();
-    for (const autos of Object.values(editableMapping)) {
-      autos.forEach(a => allMapped.add(a));
+    for (const entry of Object.values(editableMapping)) {
+      (entry.automations || []).forEach(a => allMapped.add(a));
     }
 
     const sorted = [...discoveryCache.automations].sort((a, b) => {
       const aM = allMapped.has(a.entity_id) ? 1 : 0;
       const bM = allMapped.has(b.entity_id) ? 1 : 0;
       if (aM !== bM) return aM - bM;
-      // Within each group, sort by last_updated descending (newest first)
       const aT = a.last_updated || "";
       const bT = b.last_updated || "";
       if (aT !== bT) return bT.localeCompare(aT);
@@ -459,7 +544,6 @@ const App = (() => {
       return `<option value="${esc(a.entity_id)}" ${mapped ? 'style="color:var(--text-secondary)"' : ''}>${esc(prefix + a.friendly_name)}</option>`;
     }).join("");
 
-    // Build people checkboxes (only people who are keys in the mapping)
     const personIds = Object.keys(editableMapping);
     peopleChecks.innerHTML = personIds.map(pid => {
       const shortName = pid.replace("person.", "").replace(/_/g, " ");
@@ -470,9 +554,7 @@ const App = (() => {
       </label>`;
     }).join("");
 
-    // When automation selection changes, pre-check people who already have it mapped
     autoSelect.onchange = () => updateModalPeopleChecks(autoSelect.value);
-    // Fire for the initially selected automation
     updateModalPeopleChecks(autoSelect.value);
 
     modal.classList.remove("hidden");
@@ -482,7 +564,7 @@ const App = (() => {
     const checkboxes = document.querySelectorAll("#modal-people-checks input[type=checkbox]");
     checkboxes.forEach(cb => {
       const pid = cb.value;
-      const mappedAutos = editableMapping[pid] || [];
+      const mappedAutos = (editableMapping[pid] || {}).automations || [];
       cb.checked = mappedAutos.includes(autoId);
     });
   }
@@ -503,14 +585,107 @@ const App = (() => {
 
     checked.forEach(cb => {
       const pid = cb.value;
-      if (!editableMapping[pid]) editableMapping[pid] = [];
-      if (!editableMapping[pid].includes(autoId)) {
-        editableMapping[pid].push(autoId);
-        editableMapping[pid].sort();
+      if (!editableMapping[pid]) editableMapping[pid] = { automations: [], entity_states: [] };
+      const entry = editableMapping[pid];
+      if (!entry.automations) entry.automations = [];
+      if (!entry.automations.includes(autoId)) {
+        entry.automations.push(autoId);
+        entry.automations.sort();
       }
     });
 
     closeAddMappingModal();
+    renderMapping(editableMapping, true);
+  }
+
+  // --- Add Entity State Modal ---
+
+  async function openAddEntityStateModal() {
+    const modal = document.getElementById("add-entity-state-modal");
+    const entitySelect = document.getElementById("modal-entity");
+    const peopleChecks = document.getElementById("modal-entity-people");
+
+    // Load entity discovery lazily
+    if (!entityStatesCache) {
+      entitySelect.innerHTML = '<option>Loading...</option>';
+      modal.classList.remove("hidden");
+      try {
+        entityStatesCache = await api("GET", "api/discovery/entities");
+      } catch (e) {
+        alert("Failed to load entities: " + e.message);
+        modal.classList.add("hidden");
+        return;
+      }
+    }
+
+    // Build entity dropdown grouped by domain
+    const domains = {};
+    for (const e of entityStatesCache) {
+      if (!domains[e.domain]) domains[e.domain] = [];
+      domains[e.domain].push(e);
+    }
+
+    entitySelect.innerHTML = Object.entries(domains).map(([domain, entities]) => {
+      const opts = entities.map(e =>
+        `<option value="${esc(e.entity_id)}">${esc(e.friendly_name)} (${esc(e.entity_id)})</option>`
+      ).join("");
+      return `<optgroup label="${esc(domain)}">${opts}</optgroup>`;
+    }).join("");
+
+    // Reset target state to "on"
+    setEntityStateTarget("on");
+
+    // Build people checkboxes
+    const personIds = Object.keys(editableMapping);
+    peopleChecks.innerHTML = personIds.map(pid => {
+      const shortName = pid.replace("person.", "").replace(/_/g, " ");
+      const capitalized = shortName.replace(/\b\w/g, c => c.toUpperCase());
+      return `<label class="person-check">
+        <input type="checkbox" value="${esc(pid)}">
+        ${esc(capitalized)}
+      </label>`;
+    }).join("");
+
+    modal.classList.remove("hidden");
+  }
+
+  function closeAddEntityStateModal() {
+    document.getElementById("add-entity-state-modal").classList.add("hidden");
+  }
+
+  function setEntityStateTarget(state) {
+    entityStateTarget = state;
+    document.querySelectorAll("#add-entity-state-modal .toggle-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.state === state);
+    });
+  }
+
+  function addEntityStateFromModal() {
+    const entityId = document.getElementById("modal-entity").value;
+    if (!entityId) return;
+
+    const checked = document.querySelectorAll("#modal-entity-people input:checked");
+    if (checked.length === 0) {
+      alert("Select at least one person.");
+      return;
+    }
+
+    checked.forEach(cb => {
+      const pid = cb.value;
+      if (!editableMapping[pid]) editableMapping[pid] = { automations: [], entity_states: [] };
+      const entry = editableMapping[pid];
+      if (!entry.entity_states) entry.entity_states = [];
+      // Replace existing entry for this entity_id, or add new
+      const existing = entry.entity_states.findIndex(es => es.entity_id === entityId);
+      const newEntry = { entity_id: entityId, state: entityStateTarget };
+      if (existing >= 0) {
+        entry.entity_states[existing] = newEntry;
+      } else {
+        entry.entity_states.push(newEntry);
+      }
+    });
+
+    closeAddEntityStateModal();
     renderMapping(editableMapping, true);
   }
 
@@ -535,24 +710,30 @@ const App = (() => {
     cancelEditMode,
     saveMapping,
     removeMappingBadge,
+    removeEntityState,
     toggleLabels,
+    toggleEntityStates,
     openAddMappingModal,
     closeAddMappingModal,
     addMappingFromModal,
+    openAddEntityStateModal,
+    closeAddEntityStateModal,
+    setEntityStateTarget,
+    addEntityStateFromModal,
   };
 })();
 
 // ============================================================
-// Wizard — Setup page (all 5 steps, unchanged logic)
+// Wizard — Setup page (all 5 steps)
 // ============================================================
 
 const Wizard = (() => {
   let currentStep = 1;
   let discoveryData = null;
   let selectedPeople = [];
-  let mapping = {};
+  let mapping = {};   // {person_id: {automations: [...], entity_states: []}}
   let initialized = false;
-  let existingMapping = null;
+  let existingMapping = null;  // normalized format from API
 
   // --- Step navigation ---
 
@@ -581,7 +762,6 @@ const Wizard = (() => {
     try {
       const status = await api("GET", "api/status");
 
-      // If wizard already completed, show timestamp instead of running discovery
       if (status.wizard_completed) {
         let stamp = "";
         if (status.wizard_completed_at) {
@@ -594,12 +774,10 @@ const Wizard = (() => {
         document.getElementById("welcome-new").classList.add("hidden");
         document.getElementById("welcome-existing").classList.remove("hidden");
         document.getElementById("wizard-completed-at").textContent = stamp;
-        // Hide stats since we didn't run discovery
         document.querySelector(".stats-grid").classList.add("hidden");
         return;
       }
 
-      // First-time setup — run discovery
       await runDiscovery();
     } catch (e) {
       document.getElementById("welcome-loading").textContent =
@@ -638,20 +816,14 @@ const Wizard = (() => {
   // --- Step 2: People ---
 
   async function startWizard() {
-    // If discovery hasn't been loaded yet (re-run from completed state), run it now
     if (!discoveryData) {
       goToStep(1);
       await runDiscovery();
     }
 
-    // Load existing mapping for pre-population on re-run
     try {
       const current = await api("GET", "api/mapping");
-      if (Object.keys(current).length > 0) {
-        existingMapping = current;
-      } else {
-        existingMapping = null;
-      }
+      existingMapping = Object.keys(current).length > 0 ? current : null;
     } catch (e) {
       existingMapping = null;
     }
@@ -793,7 +965,7 @@ const Wizard = (() => {
     const matches = [];
     for (const pid of selectedPeople) {
       const suggestedIds = suggested[pid] || [];
-      const existingIds = (existingMapping && existingMapping[pid]) || [];
+      const existingIds = existingMapping ? (existingMapping[pid] || {}).automations || [] : [];
       const allIds = [...suggestedIds, ...existingIds];
       const overlap = area.automation_ids.filter(a => allIds.includes(a));
       if (overlap.length > 0) matches.push(pid);
@@ -806,25 +978,27 @@ const Wizard = (() => {
     const matches = [];
     for (const pid of selectedPeople) {
       const inSuggested = (suggested[pid] || []).includes(autoId);
-      const inExisting = existingMapping && (existingMapping[pid] || []).includes(autoId);
-      if (inSuggested || inExisting) matches.push(pid);
+      const existingAutos = existingMapping ? (existingMapping[pid] || {}).automations || [] : [];
+      if (inSuggested || existingAutos.includes(autoId)) matches.push(pid);
     }
     return matches;
   }
 
   function submitAreas() {
+    // Init mapping with new format
     mapping = {};
-    selectedPeople.forEach(pid => { mapping[pid] = []; });
+    selectedPeople.forEach(pid => {
+      mapping[pid] = { automations: [], entity_states: [] };
+    });
 
     document.querySelectorAll("[data-area-id]:checked").forEach(cb => {
       const areaId = cb.dataset.areaId;
       const personId = cb.value;
-
       const area = discoveryData.areas.find(a => a.area_id === areaId);
       if (area) {
         area.automation_ids.forEach(aid => {
-          if (!mapping[personId].includes(aid)) {
-            mapping[personId].push(aid);
+          if (!mapping[personId].automations.includes(aid)) {
+            mapping[personId].automations.push(aid);
           }
         });
       }
@@ -833,25 +1007,28 @@ const Wizard = (() => {
     document.querySelectorAll("[data-unassigned-auto]:checked").forEach(cb => {
       const autoId = cb.dataset.unassignedAuto;
       const personId = cb.value;
-      if (!mapping[personId].includes(autoId)) {
-        mapping[personId].push(autoId);
+      if (!mapping[personId].automations.includes(autoId)) {
+        mapping[personId].automations.push(autoId);
       }
     });
 
-    // Merge in automations from existing mapping that weren't covered by discovery areas
+    // Merge in automations from existing mapping not covered by discovery
     if (existingMapping) {
       for (const pid of selectedPeople) {
-        const existing = existingMapping[pid] || [];
+        const existing = (existingMapping[pid] || {}).automations || [];
         existing.forEach(aid => {
-          if (!mapping[pid].includes(aid)) {
-            mapping[pid].push(aid);
+          if (!mapping[pid].automations.includes(aid)) {
+            mapping[pid].automations.push(aid);
           }
         });
+        // Preserve existing entity_states
+        const existingEs = (existingMapping[pid] || {}).entity_states || [];
+        mapping[pid].entity_states = [...existingEs];
       }
     }
 
     for (const pid of selectedPeople) {
-      mapping[pid].sort();
+      mapping[pid].automations.sort();
     }
 
     renderReviewStep();
@@ -867,7 +1044,7 @@ const Wizard = (() => {
     selectedPeople.forEach(pid => {
       const person = discoveryData.people.find(p => p.entity_id === pid);
       const personName = person ? person.friendly_name : pid;
-      const automations = mapping[pid] || [];
+      const automations = (mapping[pid] || {}).automations || [];
 
       const section = document.createElement("div");
       section.className = "review-person";
@@ -898,8 +1075,8 @@ const Wizard = (() => {
 
   function updateAddAutomationRow() {
     const allMapped = new Set();
-    for (const autos of Object.values(mapping)) {
-      autos.forEach(a => allMapped.add(a));
+    for (const entry of Object.values(mapping)) {
+      (entry.automations || []).forEach(a => allMapped.add(a));
     }
 
     const unmapped = discoveryData.automations.filter(a => !allMapped.has(a.entity_id));
@@ -924,7 +1101,8 @@ const Wizard = (() => {
   }
 
   function removeAutomation(personId, autoId) {
-    mapping[personId] = (mapping[personId] || []).filter(a => a !== autoId);
+    if (!mapping[personId]) return;
+    mapping[personId].automations = (mapping[personId].automations || []).filter(a => a !== autoId);
     renderReviewStep();
   }
 
@@ -933,10 +1111,10 @@ const Wizard = (() => {
     const autoId = document.getElementById("add-auto-automation").value;
     if (!personId || !autoId) return;
 
-    if (!mapping[personId]) mapping[personId] = [];
-    if (!mapping[personId].includes(autoId)) {
-      mapping[personId].push(autoId);
-      mapping[personId].sort();
+    if (!mapping[personId]) mapping[personId] = { automations: [], entity_states: [] };
+    if (!mapping[personId].automations.includes(autoId)) {
+      mapping[personId].automations.push(autoId);
+      mapping[personId].automations.sort();
     }
     renderReviewStep();
   }
@@ -969,7 +1147,7 @@ const Wizard = (() => {
     selectedPeople.forEach(pid => {
       const person = discoveryData.people.find(p => p.entity_id === pid);
       const personName = person ? person.friendly_name : pid;
-      const autos = mapping[pid] || [];
+      const autos = (mapping[pid] || {}).automations || [];
 
       html += `<div class="summary-person"><h4>${esc(personName)}</h4><ul>`;
       if (autos.length === 0) {
@@ -995,7 +1173,7 @@ const Wizard = (() => {
 
     for (const [pid, autos] of Object.entries(suggested)) {
       selectedPeople.push(pid);
-      mapping[pid] = autos;
+      mapping[pid] = autos;  // old list format — backend normalizes on read
     }
 
     const btn = document.querySelector("#welcome-new .btn-secondary");

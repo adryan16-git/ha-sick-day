@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from sick_day_helper import ha_api, config_manager
-from sick_day_helper.discovery import get_discovery_summary
+from sick_day_helper.discovery import get_discovery_summary, discover_toggleable_entities
 from sick_day_helper.sick_day_manager import (
     activate_sick_day,
     deactivate_sick_day,
@@ -65,6 +65,8 @@ class WizardHandler(BaseHTTPRequestHandler):
             return self._handle_status()
         if path == "/api/discovery":
             return self._handle_discovery()
+        if path == "/api/discovery/entities":
+            return self._handle_discovery_entities()
         if path == "/api/mapping":
             return self._handle_get_mapping()
         if path == "/api/sick-days":
@@ -106,6 +108,14 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._send_json(summary)
         except Exception as e:
             logger.exception("Discovery failed")
+            self._send_error_json(500, str(e))
+
+    def _handle_discovery_entities(self):
+        try:
+            entities = discover_toggleable_entities()
+            self._send_json(entities)
+        except Exception as e:
+            logger.exception("Entity discovery failed")
             self._send_error_json(500, str(e))
 
     def _handle_get_mapping(self):
@@ -201,11 +211,27 @@ class WizardHandler(BaseHTTPRequestHandler):
                     except Exception:
                         aname = aid
                     auto_list.append({"entity_id": aid, "friendly_name": aname})
+                override_list = []
+                for ov in entry.get("entity_state_overrides", []):
+                    eid = ov.get("entity_id", "")
+                    try:
+                        est = ha_api.get_state(eid)
+                        ename = est.get("attributes", {}).get("friendly_name", eid) if est else eid
+                    except Exception:
+                        ename = eid
+                    override_list.append({
+                        "entity_id": eid,
+                        "friendly_name": ename,
+                        "target_state": ov.get("target_state"),
+                        "previous_state": ov.get("previous_state"),
+                    })
+
                 result.append({
                     "person_id": person_id,
                     "person_name": name,
                     "end_date": entry.get("end_date"),
                     "disabled_automations": auto_list,
+                    "entity_state_overrides": override_list,
                 })
             self._send_json(result)
         except Exception as e:

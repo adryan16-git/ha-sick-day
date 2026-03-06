@@ -36,6 +36,29 @@ def _resolve_person_entity(display_name):
     return None
 
 
+def _friendly(entity_id):
+    """Return the friendly name for an entity, falling back to the entity ID."""
+    try:
+        st = ha_api.get_state(entity_id)
+        return st.get("attributes", {}).get("friendly_name", entity_id) if st else entity_id
+    except Exception:
+        return entity_id
+
+
+def _restore_entity_states(entity_state_overrides, context=""):
+    """Restore entity states from overrides recorded during activation."""
+    for override in entity_state_overrides:
+        entity_id = override.get("entity_id")
+        previous_state = override.get("previous_state")
+        if not entity_id or previous_state is None:
+            continue
+        try:
+            ha_api.apply_entity_state(entity_id, previous_state)
+            logger.info("%sRestored entity %s to %s", context, entity_id, previous_state)
+        except Exception:
+            logger.exception("%sFailed to restore entity %s to %s", context, entity_id, previous_state)
+
+
 def activate_sick_day(person_display_name, end_date_str):
     """Activate a sick day for a person.
 
@@ -55,14 +78,14 @@ def activate_sick_day(person_display_name, end_date_str):
         )
         return False
 
-    mapping = config_manager.load_mapping()
-    automations = mapping.get(person_id, [])
+    automations = config_manager.get_mapping_automations(person_id)
+    entity_states_config = config_manager.get_mapping_entity_states(person_id)
 
-    if not automations:
-        logger.warning("No automations mapped for %s", person_id)
+    if not automations and not entity_states_config:
+        logger.warning("No automations or entity states mapped for %s", person_id)
         ha_api.send_persistent_notification(
             title="Sick Day Helper",
-            message=f"No automations are mapped for {person_display_name}. Edit `/config/.sick_day_helper/mapping.json` to add automations.",
+            message=f"No automations or entity states are mapped for {person_display_name}. Edit `/config/.sick_day_helper/mapping.json` to add mappings.",
             notification_id=NOTIFICATION_CONFIRMATION,
         )
         return False
@@ -98,49 +121,61 @@ def activate_sick_day(person_display_name, end_date_str):
             failed.append(auto_id)
             logger.exception("Failed to disable %s", auto_id)
 
-    if skipped or failed or shared:
-        logger.info(
-            "Activation summary for %s: %d mapped, %d disabled, %d shared, %d skipped, %d failed",
-            person_id, len(automations), len(actually_disabled), len(shared), len(skipped), len(failed),
-        )
+    # Apply entity state overrides
+    entity_state_overrides = []
+    entity_applied = []
+    entity_failed = []
+    for es in entity_states_config:
+        entity_id = es.get("entity_id")
+        target_state = es.get("state")
+        if not entity_id or not target_state:
+            continue
+        try:
+            previous_state = ha_api.get_state_value(entity_id)
+            ha_api.apply_entity_state(entity_id, target_state)
+            entity_state_overrides.append({
+                "entity_id": entity_id,
+                "target_state": target_state,
+                "previous_state": previous_state,
+            })
+            entity_applied.append(entity_id)
+            logger.info("Set entity %s to %s (was %s)", entity_id, target_state, previous_state)
+        except Exception:
+            entity_failed.append(entity_id)
+            logger.exception("Failed to set entity %s to %s", entity_id, target_state)
 
-    # Record state — only automations we actually turned off
-    config_manager.set_person_state(person_id, end_date_str, actually_disabled)
+    # Record state
+    config_manager.set_person_state(person_id, end_date_str, actually_disabled, entity_state_overrides)
 
     # Update active indicator
     ha_api.turn_on(ENTITY_ACTIVE)
 
-    # Build confirmation notification with full breakdown
-    def _friendly(entity_id):
-        try:
-            st = ha_api.get_state(entity_id)
-            return st.get("attributes", {}).get("friendly_name", entity_id) if st else entity_id
-        except Exception:
-            return entity_id
-
-    disabled_lines = [f"- {_friendly(a)}" for a in actually_disabled]
+    # Build confirmation notification
     msg_parts = [f"Sick day activated for **{person_display_name}** until **{end_date_str}**."]
 
     msg_parts.append(f"\nDisabled automations ({len(actually_disabled)}):")
-    msg_parts.append("\n".join(disabled_lines) if disabled_lines else "_(none)_")
+    msg_parts.append("\n".join(f"- {_friendly(a)}" for a in actually_disabled) if actually_disabled else "_(none)_")
 
     if shared:
-        shared_lines = []
-        for a, other_pid in shared:
-            other_name = _friendly(other_pid)
-            shared_lines.append(f"- {_friendly(a)} _(shared with {other_name})_")
+        shared_lines = [f"- {_friendly(a)} _(shared with {_friendly(other_pid)})_" for a, other_pid in shared]
         msg_parts.append(f"\nAlready paused ({len(shared)}):")
         msg_parts.append("\n".join(shared_lines))
 
     if skipped:
-        skipped_lines = [f"- {_friendly(a)} _(was {reason})_" for a, reason in skipped]
         msg_parts.append(f"\nSkipped ({len(skipped)}):")
-        msg_parts.append("\n".join(skipped_lines))
+        msg_parts.append("\n".join(f"- {_friendly(a)} _(was {reason})_" for a, reason in skipped))
 
     if failed:
-        failed_lines = [f"- {_friendly(a)}" for a in failed]
         msg_parts.append(f"\nFailed ({len(failed)}):")
-        msg_parts.append("\n".join(failed_lines))
+        msg_parts.append("\n".join(f"- {_friendly(a)}" for a in failed))
+
+    if entity_applied:
+        msg_parts.append(f"\nEntity states applied ({len(entity_applied)}):")
+        msg_parts.append("\n".join(f"- {_friendly(e)}" for e in entity_applied))
+
+    if entity_failed:
+        msg_parts.append(f"\nEntity state failures ({len(entity_failed)}):")
+        msg_parts.append("\n".join(f"- {_friendly(e)}" for e in entity_failed))
 
     ha_api.send_persistent_notification(
         title="Sick Day Helper — Activated",
@@ -148,13 +183,15 @@ def activate_sick_day(person_display_name, end_date_str):
         notification_id=NOTIFICATION_CONFIRMATION,
     )
 
-    logger.info("Sick day activated for %s until %s (%d disabled, %d skipped, %d failed)",
-                person_id, end_date_str, len(actually_disabled), len(skipped), len(failed))
+    logger.info(
+        "Sick day activated for %s until %s (%d automations disabled, %d entity states applied)",
+        person_id, end_date_str, len(actually_disabled), len(entity_applied),
+    )
     return True
 
 
 def deactivate_sick_day(person_id):
-    """Deactivate a sick day: re-enable automations, clear state.
+    """Deactivate a sick day: re-enable automations, restore entity states, clear state.
 
     Only re-enables automations that aren't still needed by another active sick day.
     """
@@ -164,6 +201,7 @@ def deactivate_sick_day(person_id):
         return False
 
     disabled_by_this = set(person_state.get("disabled_automations", []))
+    entity_state_overrides = person_state.get("entity_state_overrides", [])
 
     # Remove this person's state first so get_all_currently_disabled excludes them
     config_manager.remove_person_state(person_id)
@@ -182,7 +220,10 @@ def deactivate_sick_day(person_id):
     kept_off = disabled_by_this & still_needed
     if kept_off:
         logger.info("Kept %d automation(s) off (still needed by other sick days): %s",
-                     len(kept_off), kept_off)
+                    len(kept_off), kept_off)
+
+    # Restore entity states
+    _restore_entity_states(entity_state_overrides)
 
     # Update active indicator
     if not config_manager.has_active_sick_days():
@@ -194,7 +235,6 @@ def deactivate_sick_day(person_id):
     except Exception:
         pass
 
-    # Get friendly name for notification
     try:
         state = ha_api.get_state(person_id)
         name = state.get("attributes", {}).get("friendly_name", person_id) if state else person_id
@@ -203,11 +243,16 @@ def deactivate_sick_day(person_id):
 
     ha_api.send_persistent_notification(
         title="Sick Day Helper — Cancelled",
-        message=f"Sick day cancelled for **{name}**. {len(to_reenable)} automation(s) re-enabled.",
+        message=(
+            f"Sick day cancelled for **{name}**. "
+            f"{len(to_reenable)} automation(s) re-enabled, "
+            f"{len(entity_state_overrides)} entity state(s) restored."
+        ),
         notification_id=NOTIFICATION_CONFIRMATION,
     )
 
-    logger.info("Sick day deactivated for %s (%d re-enabled)", person_id, len(to_reenable))
+    logger.info("Sick day deactivated for %s (%d re-enabled, %d entity states restored)",
+                person_id, len(to_reenable), len(entity_state_overrides))
     return True
 
 
@@ -228,6 +273,7 @@ def extend_sick_day(person_display_name, new_end_date_str):
         person_id,
         new_end_date_str,
         person_state["disabled_automations"],
+        person_state.get("entity_state_overrides", []),
     )
 
     try:
@@ -252,7 +298,7 @@ def extend_sick_day(person_display_name, new_end_date_str):
 
 
 def check_expirations():
-    """Check for expired sick days, auto-re-enable automations, and notify."""
+    """Check for expired sick days, auto-re-enable automations, restore entity states, and notify."""
     state = config_manager.load_state()
     today = date.today().isoformat()
     expired = []
@@ -274,6 +320,7 @@ def check_expirations():
 
         entry = state[person_id]
         disabled_by_this = set(entry.get("disabled_automations", []))
+        entity_state_overrides = entry.get("entity_state_overrides", [])
 
         # Remove this person's state so shared-automation check excludes them
         config_manager.remove_person_state(person_id)
@@ -290,7 +337,14 @@ def check_expirations():
             except Exception:
                 logger.exception("Failed to re-enable %s", auto_id)
 
-        lines.append(f"- **{name}** (ended {entry['end_date']}) — {len(to_reenable)} automation(s) re-enabled")
+        # Restore entity states
+        _restore_entity_states(entity_state_overrides, context=f"[{person_id}] ")
+
+        lines.append(
+            f"- **{name}** (ended {entry['end_date']}) — "
+            f"{len(to_reenable)} automation(s) re-enabled, "
+            f"{len(entity_state_overrides)} entity state(s) restored"
+        )
         if kept_off:
             lines.append(f"  - {len(kept_off)} automation(s) kept off (still needed by another sick day)")
             logger.info("Kept %d automation(s) off for %s (shared): %s", len(kept_off), person_id, kept_off)

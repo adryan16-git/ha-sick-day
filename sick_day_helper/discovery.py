@@ -255,6 +255,38 @@ def suggest_mapping(people, automations):
     return mapping
 
 
+TOGGLEABLE_DOMAINS = {"switch", "light", "input_boolean", "fan"}
+
+
+def discover_toggleable_entities(all_states=None):
+    """Return entities that support on/off toggling, for entity state mapping.
+
+    Excludes internal sick_day_helper entities.
+    Returns: [{entity_id, friendly_name, domain, state}, ...]
+    """
+    if all_states is None:
+        all_states = ha_api.get_states()
+
+    entities = []
+    for s in all_states:
+        entity_id = s["entity_id"]
+        domain = entity_id.split(".")[0]
+        if domain not in TOGGLEABLE_DOMAINS:
+            continue
+        name_part = entity_id.split(".", 1)[1] if "." in entity_id else entity_id
+        if name_part.startswith("sick_day_"):
+            continue
+        attrs = s.get("attributes", {})
+        entities.append({
+            "entity_id": entity_id,
+            "friendly_name": attrs.get("friendly_name", entity_id),
+            "domain": domain,
+            "state": s.get("state", "unknown"),
+        })
+
+    return sorted(entities, key=lambda e: (e["domain"], e["friendly_name"].lower()))
+
+
 def get_discovery_summary():
     """Aggregate discovery data for the wizard welcome step."""
     # Check cache

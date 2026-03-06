@@ -153,6 +153,17 @@ def render_template(template_str):
         return resp.read().decode()
 
 
+def apply_entity_state(entity_id, state):
+    """Apply a state ('on' or 'off') to an entity using service calls."""
+    if state == "on":
+        return turn_on(entity_id)
+    elif state == "off":
+        return turn_off(entity_id)
+    else:
+        logger.warning("Unsupported entity state '%s' for %s", state, entity_id)
+        return None
+
+
 def get_automation_config(automation_id):
     """Get automation config by its config ID. Returns dict or None."""
     try:

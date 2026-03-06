@@ -88,11 +88,12 @@
             <button class="btn btn-primary hidden" id="mapping-save-btn" onclick="App.saveMapping()">Save</button>
             <button class="btn btn-secondary hidden" id="mapping-cancel-btn" onclick="App.cancelEditMode()">Cancel</button>
             <button class="btn btn-outline hidden" id="mapping-add-btn" onclick="App.openAddMappingModal()">Add Mapping</button>
+            <button class="btn btn-outline hidden" id="mapping-add-entity-btn" onclick="App.openAddEntityStateModal()">Add Entity State</button>
           </div>
         </div>
       </section>
 
-      <!-- Add Mapping Modal -->
+      <!-- Add Automation Mapping Modal -->
       <div id="add-mapping-modal" class="modal-overlay hidden">
         <div class="modal-card">
           <h3>Add Mapping</h3>
@@ -107,6 +108,32 @@
           <div class="btn-row">
             <button class="btn btn-secondary" onclick="App.closeAddMappingModal()">Cancel</button>
             <button class="btn btn-primary" onclick="App.addMappingFromModal()">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Entity State Modal -->
+      <div id="add-entity-state-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <h3>Add Entity State</h3>
+          <div class="form-group">
+            <label for="modal-entity">Entity</label>
+            <select id="modal-entity"></select>
+          </div>
+          <div class="form-group">
+            <label>Target State</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" data-state="on" onclick="App.setEntityStateTarget('on')">On</button>
+              <button class="toggle-btn" data-state="off" onclick="App.setEntityStateTarget('off')">Off</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Assign to People</label>
+            <div id="modal-entity-people" class="person-checks"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" onclick="App.closeAddEntityStateModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="App.addEntityStateFromModal()">Add</button>
           </div>
         </div>
       </div>

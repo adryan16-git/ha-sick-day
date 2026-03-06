@@ -37,16 +37,43 @@ def _write_json(path, data):
 
 # --- Mapping ---
 
+def _normalize_entry(entry):
+    """Normalize a mapping entry to the new dict format.
+
+    Handles old list format: ["auto1", "auto2"]
+    And new dict format: {"automations": [...], "entity_states": [...]}
+    """
+    if isinstance(entry, list):
+        return {"automations": entry, "entity_states": []}
+    return {
+        "automations": entry.get("automations", []),
+        "entity_states": entry.get("entity_states", []),
+    }
+
+
 def load_mapping():
-    """Load the person-to-automation mapping.
+    """Load the person-to-automation mapping, normalized to dict format.
 
     Returns dict like:
     {
-        "person.kid_1": ["automation.kid_1_morning", "automation.kid_1_bedtime"],
-        "person.kid_2": ["automation.kid_2_school"]
+        "person.kid_1": {
+            "automations": ["automation.kid_1_morning"],
+            "entity_states": [{"entity_id": "switch.fan", "state": "on"}]
+        }
     }
     """
-    return _read_json(MAPPING_FILE) or {}
+    raw = _read_json(MAPPING_FILE) or {}
+    return {pid: _normalize_entry(entry) for pid, entry in raw.items()}
+
+
+def get_mapping_automations(person_id):
+    """Get the automation list for a person from the mapping."""
+    return load_mapping().get(person_id, {}).get("automations", [])
+
+
+def get_mapping_entity_states(person_id):
+    """Get the entity state entries for a person from the mapping."""
+    return load_mapping().get(person_id, {}).get("entity_states", [])
 
 
 def save_mapping(mapping):
@@ -87,12 +114,13 @@ def get_person_state(person_entity_id):
     return state.get(person_entity_id)
 
 
-def set_person_state(person_entity_id, end_date, disabled_automations):
+def set_person_state(person_entity_id, end_date, disabled_automations, entity_state_overrides=None):
     """Set or update the sick day state for a person."""
     state = load_state()
     state[person_entity_id] = {
         "end_date": end_date,
         "disabled_automations": disabled_automations,
+        "entity_state_overrides": entity_state_overrides or [],
     }
     save_state(state)
 
