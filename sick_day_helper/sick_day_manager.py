@@ -78,8 +78,9 @@ def activate_sick_day(person_display_name, end_date_str):
         )
         return False
 
-    automations = config_manager.get_mapping_automations(person_id)
-    entity_states_config = config_manager.get_mapping_entity_states(person_id)
+    person_entry = config_manager.load_mapping().get(person_id, {})
+    automations = person_entry.get("automations", [])
+    entity_states_config = person_entry.get("entity_states", [])
 
     if not automations and not entity_states_config:
         logger.warning("No automations or entity states mapped for %s", person_id)

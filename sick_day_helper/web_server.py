@@ -95,12 +95,13 @@ class WizardHandler(BaseHTTPRequestHandler):
         self._send_error_json(404, "Not found")
 
     def _handle_status(self):
+        wizard = config_manager.get_wizard_status()
         self._send_json({
-            "wizard_completed": config_manager.wizard_completed(),
-            "wizard_completed_at": config_manager.wizard_completed_at(),
+            "wizard_completed": wizard["completed"],
+            "wizard_completed_at": wizard["completed_at"],
             "mapping_exists": config_manager.mapping_exists(),
             "has_active_sick_days": config_manager.has_active_sick_days(),
-            "mapping_count": len(config_manager.load_mapping()),
+            "mapping_count": config_manager.mapping_count(),
         })
 
     def _handle_discovery(self):

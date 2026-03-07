@@ -66,14 +66,9 @@ def load_mapping():
     return {pid: _normalize_entry(entry) for pid, entry in raw.items()}
 
 
-def get_mapping_automations(person_id):
-    """Get the automation list for a person from the mapping."""
-    return load_mapping().get(person_id, {}).get("automations", [])
-
-
-def get_mapping_entity_states(person_id):
-    """Get the entity state entries for a person from the mapping."""
-    return load_mapping().get(person_id, {}).get("entity_states", [])
+def mapping_count():
+    """Return number of people in the mapping without normalizing entries."""
+    return len(_read_json(MAPPING_FILE) or {})
 
 
 def save_mapping(mapping):
@@ -148,18 +143,23 @@ def get_all_currently_disabled():
 
 # --- Wizard State ---
 
+def get_wizard_status():
+    """Return wizard completion info in a single file read.
+
+    Returns {completed: bool, completed_at: str|None}.
+    """
+    data = _read_json(WIZARD_STATE_FILE) or {}
+    completed = bool(data.get("completed"))
+    return {
+        "completed": completed,
+        "completed_at": data.get("completed_at") if completed else None,
+    }
+
+
 def wizard_completed():
     """Check if the setup wizard has been completed."""
     data = _read_json(WIZARD_STATE_FILE)
     return bool(data and data.get("completed"))
-
-
-def wizard_completed_at():
-    """Return the ISO timestamp of when the wizard was last completed, or None."""
-    data = _read_json(WIZARD_STATE_FILE)
-    if data and data.get("completed"):
-        return data.get("completed_at")
-    return None
 
 
 def mark_wizard_completed():
