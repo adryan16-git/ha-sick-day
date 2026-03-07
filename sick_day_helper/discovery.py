@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sick_day_helper import ha_api
 
@@ -311,19 +312,31 @@ def get_discovery_summary():
     areas = discover_areas()
     logger.info("Discovery: areas took %.2fs (%d areas)", time.time() - t0, len(areas))
 
-    # Classify automations
+    # Classify automations in parallel to avoid N serial HTTP round-trips
     t0 = time.time()
     time_triggered_count = 0
     day_filtered_count = 0
     automation_details = {}
-    for auto in automations:
-        classification = classify_automation(auto["entity_id"], auto["config_id"])
-        auto["classification"] = classification
-        automation_details[auto["entity_id"]] = auto
-        if classification["time_triggered"]:
-            time_triggered_count += 1
-        if classification["day_filtered"]:
-            day_filtered_count += 1
+
+    def _classify(auto):
+        return auto, classify_automation(auto["entity_id"], auto["config_id"])
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_classify, auto): auto for auto in automations}
+        for future in as_completed(futures):
+            try:
+                auto, classification = future.result()
+            except Exception:
+                auto = futures[future]
+                classification = {"time_triggered": False, "day_filtered": False, "trigger_summary": ""}
+                logger.exception("Classification failed for %s", auto.get("entity_id"))
+            auto["classification"] = classification
+            automation_details[auto["entity_id"]] = auto
+            if classification["time_triggered"]:
+                time_triggered_count += 1
+            if classification["day_filtered"]:
+                day_filtered_count += 1
+
     logger.info("Discovery: classify automations took %.2fs (%d automations)", time.time() - t0, len(automations))
 
     # Build area-to-automation mapping
