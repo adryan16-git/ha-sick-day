@@ -61,35 +61,22 @@ def discover_areas():
     """Use HA template API to discover areas and their automation entities."""
     areas = []
     try:
-        # Get all area IDs
-        area_ids_raw = ha_api.render_template("{{ areas() | list | tojson }}")
-        area_ids = json.loads(area_ids_raw)
-
-        if not area_ids:
-            return areas
-
-        # Batch: get all area names in one template call
-        ids_json = json.dumps(area_ids)
-        names_tpl = (
-            "{%- set result = namespace(d={}) -%}"
-            "{%- for aid in " + ids_json + " -%}"
-            "{%- set _ = result.d.update({aid: area_name(aid)}) -%}"
+        # Single template call: fetch IDs, names, and entities together
+        tpl = (
+            "{%- set ids = areas() | list -%}"
+            "{%- set result = namespace(names={}, entities={}) -%}"
+            "{%- for aid in ids -%}"
+            "{%- set _ = result.names.update({aid: area_name(aid)}) -%}"
+            "{%- set _ = result.entities.update({aid: area_entities(aid) | list}) -%}"
             "{%- endfor -%}"
-            "{{ result.d | tojson }}"
+            '{{ {"ids": ids, "names": result.names, "entities": result.entities} | tojson }}'
         )
-        names_raw = ha_api.render_template(names_tpl)
-        area_names = json.loads(names_raw)
+        raw = ha_api.render_template(tpl)
+        data = json.loads(raw)
 
-        # Batch: get all area entities in one template call
-        entities_tpl = (
-            "{%- set result = namespace(d={}) -%}"
-            "{%- for aid in " + ids_json + " -%}"
-            "{%- set _ = result.d.update({aid: area_entities(aid) | list}) -%}"
-            "{%- endfor -%}"
-            "{{ result.d | tojson }}"
-        )
-        entities_raw = ha_api.render_template(entities_tpl)
-        area_entities = json.loads(entities_raw)
+        area_ids = data.get("ids", [])
+        area_names = data.get("names", {})
+        area_entities = data.get("entities", {})
 
         for area_id in area_ids:
             entity_ids = area_entities.get(area_id, [])
@@ -183,28 +170,25 @@ def discover_labels():
         except Exception:
             pass
 
-    # Fallback: Jinja2 templates
+    # Fallback: Jinja2 templates — fetch IDs and names in one call
     try:
-        ids_raw = ha_api.render_template("{{ labels() | list | tojson }}")
-        label_ids = json.loads(ids_raw)
+        tpl = (
+            "{%- set ids = labels() | list -%}"
+            "{%- set result = namespace(d={}) -%}"
+            "{%- for lid in ids -%}"
+            "{%- set _ = result.d.update({lid: label_name(lid)}) -%}"
+            "{%- endfor -%}"
+            '{{ {"ids": ids, "names": result.d} | tojson }}'
+        )
+        raw = ha_api.render_template(tpl)
+        data = json.loads(raw)
+        label_ids = data.get("ids", [])
+        names = data.get("names", {})
+
         if not label_ids:
             return {}
 
-        # Batch-resolve names in a single template call
-        ids_json = json.dumps(label_ids)
-        tpl = (
-            "{%- set result = namespace(d={}) -%}"
-            "{%- for lid in " + ids_json + " -%}"
-            "{%- set _ = result.d.update({lid: label_name(lid)}) -%}"
-            "{%- endfor -%}"
-            "{{ result.d | tojson }}"
-        )
-        names_raw = ha_api.render_template(tpl)
-        names = json.loads(names_raw)
-
-        labels = {}
-        for lid in label_ids:
-            labels[lid] = {"name": names.get(lid, lid), "color": ""}
+        labels = {lid: {"name": names.get(lid, lid), "color": ""} for lid in label_ids}
         logger.debug("Discovered %d labels via Jinja2 fallback", len(labels))
         return labels
     except Exception:
