@@ -730,6 +730,8 @@ const App = (() => {
 const Wizard = (() => {
   let currentStep = 1;
   let discoveryData = null;
+  let autoById = {};    // entity_id -> automation object
+  let personById = {};  // entity_id -> person object
   let selectedPeople = [];
   let mapping = {};   // {person_id: {automations: [...], entity_states: []}}
   let initialized = false;
@@ -794,6 +796,8 @@ const Wizard = (() => {
     try {
       const discovery = await api("GET", "api/discovery");
       discoveryData = discovery;
+      autoById = Object.fromEntries(discovery.automations.map(a => [a.entity_id, a]));
+      personById = Object.fromEntries(discovery.people.map(p => [p.entity_id, p]));
 
       document.getElementById("stat-people").textContent = discovery.counts.people;
       document.getElementById("stat-areas").textContent = discovery.counts.areas;
@@ -889,7 +893,7 @@ const Wizard = (() => {
       card.className = "area-card";
 
       const autoList = area.automation_ids.map(aid => {
-        const auto = discoveryData.automations.find(a => a.entity_id === aid);
+        const auto = autoById[aid];
         const name = auto ? auto.friendly_name : aid;
         const badges = getBadges(auto);
         return `<li>${esc(name)}${badges}</li>`;
@@ -897,7 +901,7 @@ const Wizard = (() => {
 
       const bestMatches = findBestPeopleForArea(area);
       const personCheckboxes = selectedPeople.map(pid => {
-        const person = discoveryData.people.find(p => p.entity_id === pid);
+        const person = personById[pid];
         const name = esc(person ? person.friendly_name : pid);
         const checked = bestMatches.includes(pid) ? "checked" : "";
         return `<label class="person-check">
@@ -928,13 +932,13 @@ const Wizard = (() => {
       unassignedList.innerHTML = "";
 
       unassigned.forEach(aid => {
-        const auto = discoveryData.automations.find(a => a.entity_id === aid);
+        const auto = autoById[aid];
         const name = auto ? auto.friendly_name : aid;
         const badges = getBadges(auto);
         const bestMatches = findBestPeopleForAutomation(aid);
 
         const personCheckboxes = selectedPeople.map(pid => {
-          const person = discoveryData.people.find(p => p.entity_id === pid);
+          const person = personById[pid];
           const pname = esc(person ? person.friendly_name : pid);
           const checked = bestMatches.includes(pid) ? "checked" : "";
           return `<label class="person-check">
@@ -1042,7 +1046,7 @@ const Wizard = (() => {
     container.innerHTML = "";
 
     selectedPeople.forEach(pid => {
-      const person = discoveryData.people.find(p => p.entity_id === pid);
+      const person = personById[pid];
       const personName = person ? person.friendly_name : pid;
       const automations = (mapping[pid] || {}).automations || [];
 
@@ -1054,7 +1058,7 @@ const Wizard = (() => {
         autoHtml = '<p class="subtext" style="padding:8px 12px">No automations assigned.</p>';
       } else {
         autoHtml = automations.map(aid => {
-          const auto = discoveryData.automations.find(a => a.entity_id === aid);
+          const auto = autoById[aid];
           const name = auto ? auto.friendly_name : aid;
           const badges = getBadges(auto);
           return `
@@ -1087,7 +1091,7 @@ const Wizard = (() => {
 
       const personSelect = document.getElementById("add-auto-person");
       personSelect.innerHTML = selectedPeople.map(pid => {
-        const p = discoveryData.people.find(pp => pp.entity_id === pid);
+        const p = personById[pid];
         return `<option value="${pid}">${esc(p ? p.friendly_name : pid)}</option>`;
       }).join("");
 
@@ -1145,7 +1149,7 @@ const Wizard = (() => {
     let html = '<p class="info-box" style="margin-bottom:16px">Your mapping has been saved. Sick Day Helper is now ready to use.</p>';
 
     selectedPeople.forEach(pid => {
-      const person = discoveryData.people.find(p => p.entity_id === pid);
+      const person = personById[pid];
       const personName = person ? person.friendly_name : pid;
       const autos = (mapping[pid] || {}).automations || [];
 
@@ -1154,7 +1158,7 @@ const Wizard = (() => {
         html += "<li>No automations</li>";
       } else {
         autos.forEach(aid => {
-          const auto = discoveryData.automations.find(a => a.entity_id === aid);
+          const auto = autoById[aid];
           html += `<li>${esc(auto ? auto.friendly_name : aid)}</li>`;
         });
       }
