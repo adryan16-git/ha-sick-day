@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -195,44 +196,54 @@ class WizardHandler(BaseHTTPRequestHandler):
     def _handle_get_sick_days(self):
         try:
             state = config_manager.load_state()
+
+            # Collect all entity IDs that need name resolution
+            all_ids = set()
+            for person_id, entry in state.items():
+                all_ids.add(person_id)
+                all_ids.update(entry.get("disabled_automations", []))
+                all_ids.update(
+                    ov.get("entity_id", "") for ov in entry.get("entity_state_overrides", [])
+                )
+            all_ids.discard("")
+
+            # Resolve all friendly names in parallel
+            def _resolve(eid):
+                try:
+                    st = ha_api.get_state(eid)
+                    return eid, st.get("attributes", {}).get("friendly_name", eid) if st else eid
+                except Exception:
+                    return eid, eid
+
+            names = {}
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                for eid, name in executor.map(_resolve, all_ids):
+                    names[eid] = name
+
+            # Assemble result using the name lookup
             result = []
             for person_id, entry in state.items():
-                try:
-                    st = ha_api.get_state(person_id)
-                    name = st.get("attributes", {}).get("friendly_name", person_id) if st else person_id
-                except Exception:
-                    name = person_id
-                auto_ids = entry.get("disabled_automations", [])
-                auto_list = []
-                for aid in auto_ids:
-                    try:
-                        ast = ha_api.get_state(aid)
-                        aname = ast.get("attributes", {}).get("friendly_name", aid) if ast else aid
-                    except Exception:
-                        aname = aid
-                    auto_list.append({"entity_id": aid, "friendly_name": aname})
-                override_list = []
-                for ov in entry.get("entity_state_overrides", []):
-                    eid = ov.get("entity_id", "")
-                    try:
-                        est = ha_api.get_state(eid)
-                        ename = est.get("attributes", {}).get("friendly_name", eid) if est else eid
-                    except Exception:
-                        ename = eid
-                    override_list.append({
-                        "entity_id": eid,
-                        "friendly_name": ename,
+                auto_list = [
+                    {"entity_id": aid, "friendly_name": names.get(aid, aid)}
+                    for aid in entry.get("disabled_automations", [])
+                ]
+                override_list = [
+                    {
+                        "entity_id": ov.get("entity_id", ""),
+                        "friendly_name": names.get(ov.get("entity_id", ""), ov.get("entity_id", "")),
                         "target_state": ov.get("target_state"),
                         "previous_state": ov.get("previous_state"),
-                    })
-
+                    }
+                    for ov in entry.get("entity_state_overrides", [])
+                ]
                 result.append({
                     "person_id": person_id,
-                    "person_name": name,
+                    "person_name": names.get(person_id, person_id),
                     "end_date": entry.get("end_date"),
                     "disabled_automations": auto_list,
                     "entity_state_overrides": override_list,
                 })
+
             self._send_json(result)
         except Exception as e:
             logger.exception("Failed to get sick days")
