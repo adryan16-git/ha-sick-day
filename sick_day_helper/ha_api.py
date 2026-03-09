@@ -14,8 +14,8 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = 2  # seconds, doubles each retry
 
 
-def _request(method, path, data=None):
-    """Make an authenticated request to the HA API with retry logic."""
+def _raw_request(method, path, data=None):
+    """Make an authenticated request with retry logic. Returns raw response string."""
     url = f"{SUPERVISOR_URL}{path}"
     headers = {
         "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
@@ -28,10 +28,7 @@ def _request(method, path, data=None):
         try:
             req = urllib.request.Request(url, data=body, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=30) as resp:
-                resp_body = resp.read().decode()
-                if resp_body:
-                    return json.loads(resp_body)
-                return None
+                return resp.read().decode()
         except urllib.error.HTTPError as e:
             last_error = e
             resp_body = e.read().decode() if e.fp else ""
@@ -54,6 +51,14 @@ def _request(method, path, data=None):
             time.sleep(sleep_time)
 
     raise last_error
+
+
+def _request(method, path, data=None):
+    """Make an authenticated request and JSON-parse the response."""
+    resp_body = _raw_request(method, path, data)
+    if resp_body:
+        return json.loads(resp_body)
+    return None
 
 
 def get_state(entity_id):
@@ -142,15 +147,7 @@ def fire_event(event_type, event_data=None):
 
 def render_template(template_str):
     """Render a Jinja2 template via HA's API. Returns the rendered string."""
-    url = f"{SUPERVISOR_URL}/template"
-    headers = {
-        "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    body = json.dumps({"template": template_str}).encode()
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode()
+    return _raw_request("POST", "/template", {"template": template_str})
 
 
 def apply_entity_state(entity_id, state):
