@@ -2,17 +2,48 @@
 
 import json
 import logging
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sick_day_helper import ha_api
+from sick_day_helper.constants import DISCOVERY_CACHE_FILE
 
 logger = logging.getLogger(__name__)
 
-# Module-level cache for discovery summary
+# Module-level in-memory cache (short TTL — serves repeated tab navigations)
 _discovery_cache = {"result": None, "timestamp": 0}
-_CACHE_TTL = 60  # seconds
+_CACHE_TTL = 60           # seconds, in-memory
+_DISK_CACHE_TTL = 600     # seconds, on-disk (survives restarts)
+
+
+def _load_disk_cache():
+    """Load discovery result from disk if the file exists and is within TTL."""
+    try:
+        with open(DISCOVERY_CACHE_FILE, "r") as f:
+            data = json.load(f)
+        age = time.time() - data.get("timestamp", 0)
+        if age < _DISK_CACHE_TTL:
+            logger.info("Loaded discovery cache from disk (age: %.1fs)", age)
+            return data["result"]
+    except FileNotFoundError:
+        pass
+    except (KeyError, json.JSONDecodeError, OSError):
+        logger.debug("Discovery disk cache unreadable, will re-discover")
+    return None
+
+
+def _save_disk_cache(result):
+    """Write a fresh discovery result to the disk cache atomically."""
+    try:
+        tmp = DISCOVERY_CACHE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"timestamp": time.time(), "result": result}, f)
+        os.replace(tmp, DISCOVERY_CACHE_FILE)
+        logger.debug("Discovery result saved to disk cache")
+    except OSError:
+        logger.warning("Could not write discovery cache to disk")
 
 
 def _extract_name_tokens(entity_id):
@@ -274,11 +305,19 @@ def discover_toggleable_entities(all_states=None):
 
 def get_discovery_summary():
     """Aggregate discovery data for the wizard welcome step."""
-    # Check cache
     now = time.time()
+
+    # 1. In-memory cache (60s TTL)
     if _discovery_cache["result"] is not None and (now - _discovery_cache["timestamp"]) < _CACHE_TTL:
-        logger.info("Returning cached discovery summary (age: %.1fs)", now - _discovery_cache["timestamp"])
+        logger.info("Returning in-memory discovery cache (age: %.1fs)", now - _discovery_cache["timestamp"])
         return _discovery_cache["result"]
+
+    # 2. Disk cache (10-min TTL) — avoids full re-discovery after add-on restart
+    disk_result = _load_disk_cache()
+    if disk_result is not None:
+        _discovery_cache["result"] = disk_result
+        _discovery_cache["timestamp"] = now
+        return disk_result
 
     total_start = time.time()
 
@@ -360,7 +399,10 @@ def get_discovery_summary():
         },
     }
 
-    # Update cache
+    # Persist to disk so the next cold start skips full discovery
+    _save_disk_cache(result)
+
+    # Update in-memory cache
     _discovery_cache["result"] = result
     _discovery_cache["timestamp"] = time.time()
 

@@ -41,6 +41,7 @@ NOTIFICATION_CONFIRMATION = "sick_day_confirmation"
 INGRESS_PORT = 8099
 WEB_UI_DIR = "/web_ui"
 WIZARD_STATE_FILE = os.path.join(DATA_DIR, "wizard_state.json")
+DISCOVERY_CACHE_FILE = os.path.join(DATA_DIR, "discovery_cache.json")
 
 # Logging
 LOG_LEVEL = os.environ.get("SDH_LOG_LEVEL", "info").upper()
