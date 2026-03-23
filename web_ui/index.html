@@ -63,8 +63,9 @@
                 <input type="range" id="declare-days" min="1" max="14" value="1" oninput="document.getElementById('days-display').textContent=this.value">
               </div>
               <div id="duration-date-group" class="form-group hidden">
-                <label for="declare-date">End Date</label>
+                <label for="declare-date">Resume Date</label>
                 <input type="date" id="declare-date">
+                <p class="form-hint">Automations will resume at the start of this date, so they run normally that day.</p>
               </div>
               <div class="btn-row">
                 <button class="btn btn-primary" id="declare-submit" onclick="App.declareSickDay()">Submit</button>

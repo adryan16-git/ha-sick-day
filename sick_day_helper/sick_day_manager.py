@@ -331,24 +331,31 @@ def check_expirations():
         to_reenable = disabled_by_this - still_needed
         kept_off = disabled_by_this & still_needed
 
+        actually_reenabled = []
+        failed_reenable = []
         for auto_id in to_reenable:
             try:
                 ha_api.turn_on(auto_id)
+                actually_reenabled.append(auto_id)
                 logger.info("Re-enabled automation (expired): %s", auto_id)
             except Exception:
+                failed_reenable.append(auto_id)
                 logger.exception("Failed to re-enable %s", auto_id)
 
         # Restore entity states
         _restore_entity_states(entity_state_overrides, context=f"[{person_id}] ")
 
-        lines.append(
-            f"- **{name}** (ended {entry['end_date']}) — "
-            f"{len(to_reenable)} automation(s) re-enabled, "
-            f"{len(entity_state_overrides)} entity state(s) restored"
-        )
+        summary = f"- **{name}** (ended {entry['end_date']}) — {len(actually_reenabled)} automation(s) re-enabled"
+        if entity_state_overrides:
+            summary += f", {len(entity_state_overrides)} entity state(s) restored"
+        lines.append(summary)
         if kept_off:
             lines.append(f"  - {len(kept_off)} automation(s) kept off (still needed by another sick day)")
             logger.info("Kept %d automation(s) off for %s (shared): %s", len(kept_off), person_id, kept_off)
+        if failed_reenable:
+            failed_names = ", ".join(_friendly(a) for a in failed_reenable)
+            lines.append(f"  - WARNING: {len(failed_reenable)} automation(s) failed to re-enable and may still be off: {failed_names}")
+            logger.error("Failed to re-enable %d automation(s) for %s: %s", len(failed_reenable), person_id, failed_reenable)
 
     # Update active indicator
     if not config_manager.has_active_sick_days():

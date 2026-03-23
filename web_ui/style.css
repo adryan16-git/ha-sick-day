@@ -387,6 +387,12 @@ body {
   font-size: 0.85rem;
 }
 
+.form-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  margin: 4px 0 0;
+}
+
 /* Stats grid */
 .stats-grid {
   display: grid;

@@ -189,7 +189,7 @@ const App = (() => {
         <div class="sick-card" data-person-id="${esc(sd.person_id)}">
           <div class="sick-card-header">
             <h4>${esc(sd.person_name)}</h4>
-            <span class="end-date">Until ${esc(sd.end_date)}</span>
+            <span class="end-date">Resumes ${esc(sd.end_date)}</span>
           </div>
           <div class="sick-card-autos">${autoBadges || '<span class="auto-badge">no automations recorded</span>'}</div>
           ${entityOverridesHtml}
